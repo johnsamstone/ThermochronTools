@@ -25,9 +25,58 @@ from scipy import optimize
 #==============================================================================
 # Constants used throughout
 #==============================================================================
-R = # Universal gas constant
-Av = #Avogadros number
+R = 8.0 # Universal gas constant
+Av = 6.022#Avogadros number
 
+
+#==============================================================================
+# Class for a grain model
+#==============================================================================
+
+class grainModel():
+    ''' A grain model handles the calculation of parameters that may be specific to thermochronometer shape.
+    This includes the diffusive loss of daughter product, redistribution and/or ejection
+    of daughter products, etc. These will be handled by sub classes
+    '''
+    
+    def __init__():
+        pass
+    
+    def calcDaughterLossRate(self,D):
+        ''' Calculate the rate of daughter product loss, e.g. due to diffusion
+        D (m^2/s) specifies the diffusivity
+        '''
+        
+        print('No specific grain geometry specified, cannot calculate daughter loss')
+        return None
+        
+    def redistributeProductionRate(self,daughterProductionRate):
+        ''' Redistributes the produced daughter product according to the relocation
+        distance of different nuclides specied by the subclasses
+        '''
+        
+        print('No specific grain geometry specified, cannot calculate daughter redistribution')
+        
+def sphere(grainModel):
+    '''
+    '''
+    def __init__():
+        pass        
+    
+def prism(grainModel):
+    
+    def __init__():
+        pass
+
+def apatite(grainModel):
+    
+    def __init__():
+        pass
+    
+def zircon(grainModel):
+    
+    def __init__():
+        pass
 
 #==============================================================================
 #  Classes for different thermochronometers
@@ -122,6 +171,16 @@ class Thermochronometer():
             dDdt = self._productionFactors*dNdt
         
         return dNdt,dDdt
+        
+    def calcDaughterLossRate(self,T):
+        
+        ''' Calculates the rate of loss of daughter product at the specified temperature.
+        The actual function for this will be defined by subclasses. All thermochronometers
+        have a temperature dependent loss of daughter product, but they do not all 
+        share the same depdenencies. 
+        '''
+        print('Error: calcDaughterLossRate not defined by subclass')
+        return None
 
     def _multiDecayRate(self):
         ''' For when multiple parents produce the same daughter, this calculates
@@ -175,6 +234,30 @@ class HeThermochronometer(Thermochronometer):
         '''
         
         return self._Do*np.exp(-self._Ea/(R*T))
+        
+
+        
+    def modelThermalHistory(self,thermalHistory,dt = 1.0):
+        
+        ''' Forward model the thermal history specified. 
+        Starting from the initial concentration of parent and daughter nuclides,
+        integrates the production and diffusion of daughter product and the loss of parents
+        '''
+        
+        for i,t in enumerate(thermalHistory.t):
+            #Calculate the rates of parent loss and daughter production
+            dPdt_i,dDdt_i = self.calcDecayProductionRate()
+            
+            #Get the current temperature
+            T = thermalHistory.getTemp(t)            
+            
+            #Calculate the rates of daughter loss via diffusion
+            dDdt_i += self.calcDaughterLossRate(T)
+            
+            #PLEASE IMPLEMENT SOMETHING BETTER THAN FORWARD EULER....
+            self._parents+= dPdt_i*dt
+            self._daughters+= dDdt_i*dt
+            
 
 class ApatiteHe(HeThermochronometer):
     '''A class describing the apatite U-Th/He thermochronometer
@@ -185,5 +268,10 @@ class ApatiteHe(HeThermochronometer):
     self._Ea = 1#
     
     def __init__(U,Th,Sm,He = 0.0,grainModel):
-        
+        pass
+    
+    def calcDaughterLossRate(self,T):
+        ''' Calculate the rate of daughter loss due to diffusion
+        '''
+        self.grainModel.calcDaughterLossRate(T)
     
