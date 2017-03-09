@@ -213,6 +213,19 @@ class expansionExperiment:
             sigma = self.dVu
             
         return (1/np.sqrt(2.0*sigma**2*np.pi))*np.exp(-(Vunknown - self.Vu)**2/(2*sigma**2))
+        
+    def _calcLikelihoodGivenCalVolume(self,Vunknown,Vcal,sigma):
+        ''' For simultaneuously evaluating the likelihood of a volumes for the known
+        and unknown parts of the experimental apparatus
+        '''        
+        
+        if self.expansionDirection == 'Forward':
+            Vu = Vcal*((self.P1/self.P2) -1.0)
+            
+        elif self.expansionDirection == 'Reverse':
+            Vu = Vcal/((self.P1/self.P2) - 1.0)
+            
+        return (1/np.sqrt(2.0*sigma**2*np.pi))*np.exp(-(Vunknown - Vu)**2/(2*sigma**2))
 
 #==============================================================================
 # 
@@ -294,7 +307,19 @@ class expansionExperimentSet:
             L*=exp.calcLikelihood(Vunknown,sigma)
         
         return L
-            
+        
+    def calcJointLikelihood(self,Vunknown,Vcal,sigma):
+        ''' Calculate the combined likelihood of the unknown volume for all the
+        experiements within this set given the specified valule for the known volume
+        '''
+        
+        
+        L = 1.0
+        
+        for exp in self._experiments:
+            L*=exp._calcLikelihoodGivenCalVolume(Vunknown,Vcal,sigma)
+        
+        return L
     
 class dilutionExperiments:
     

@@ -13,16 +13,6 @@ import VolumeCalibration as VC
 import thermalTranspirationCorrection as ttc
 from matplotlib import pyplot as plt
 
-class tempGetter:
-    
-    def __init__(self):
-        pass
-    
-    def getTemps(self,x):
-        ''' Returns the temperature of the line and the temperature of the measurement
-        '''
-        return 20.55,45.0
-
 def SJdataLoader(filenames,calibrationVolume,tempGetter,pipeDiameter,gas,expansionDirection):
     '''Function to transform the data stored in filename to a series of experiments
         File is tab delimited wth columns :  Pressure (mTorr), time (sec), Experiment number, isP1 (boolean)   

@@ -17,15 +17,17 @@ from scipy import stats
 # Define paths, other info 
 #==============================================================================
 
-fillAppPath = ('/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_Vapp_UnkToCal.txt',
-               '/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_Vapp_UnkToCal_2.txt')
+#fillAppPath = ['/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_Vapp_UnkToCal.txt'],
+#               '/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_Vapp_UnkToCal_2.txt')
 
-pipPath = ('/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_pip_CalToUnk_2.txt',
-           '/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_pip_CalToUnk_2.txt',
-           '/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_pip_CalToUnk_3.txt')
+fillAppPath = ['/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/ValCal_Pip3_Vapp_UnkToCal_box.txt']
 
+#pipPath = ('/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_pip_CalToUnk_2.txt',
+#           '/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_pip_CalToUnk_2.txt',
+#           '/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_pip_CalToUnk_3.txt')
+
+pipPath = ['/Users/sjohnstone/Documents/HeLab/VolumeCalibration/RawData/VolCal_Pip3_pip_CalToUnk_box_2.txt']
            
-
 
 nIters = 500 #How many monte carlo steps to take in the MCMC
 
@@ -36,13 +38,26 @@ diam = 0.01
 
 calVolume = VC.calibrationVolume(Vc,dVc)
 
-tempGetter = loadVCfileFuns.tempGetter()
+class tempGetter:
+    
+    def __init__(self,tLine,tGauge):
+        self.tLine = tLine
+        self.tGauge = tGauge
+    
+    def getTemps(self,x):
+        ''' Returns the temperature of the line and the temperature of the measurement
+        '''
+        return self.tLine,self.tGauge
+        
+tempGetter_fillApp = tempGetter(21.5,45.0)
+
+tempGetter_pip = tempGetter(21.0,45.0)
 #%%
 #==============================================================================
 # Load the data 
 #==============================================================================
 
-expSet_fillingApparatus = loadVCfileFuns.SJdataLoader(fillAppPath,calVolume,tempGetter,diam,'N2','Reverse')
+expSet_fillingApparatus = loadVCfileFuns.SJdataLoader(fillAppPath,calVolume,tempGetter_fillApp,diam,'N2','Reverse')
 
 expSet_fillingApparatus.calcWeightedMean()
 plt.figure()
@@ -133,11 +148,11 @@ plt.title('Filling Apparatus: Pippette 3')
 # Propogate this through to the pipette
 #==============================================================================
 
-fillingApparatusVolume = VC.calibrationVolume(np.percentile(samples_app[:,1],50),np.std(samples_app[:,1]))
+fillingApparatusVolume = VC.calibrationVolume(np.percentile(samples_app[:,0],50),np.std(samples_app[:,0]))
 
 newVolume = calVolume.addVolume(fillingApparatusVolume)
 
-expSet_pippette = loadVCfileFuns.SJdataLoader(pipPath,newVolume,tempGetter,diam,'N2','Forward')
+expSet_pippette = loadVCfileFuns.SJdataLoader(pipPath,newVolume,tempGetter_pip,diam,'N2','Forward')
 
 plt.figure()
 expSet_pippette.plotWeightedMean()

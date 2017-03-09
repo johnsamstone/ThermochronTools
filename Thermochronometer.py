@@ -30,6 +30,18 @@ Av = 6.022#Avogadros number
 
 
 #==============================================================================
+# Useful functions
+#==============================================================================
+def thermDiffusivity(T,Do,Ea,R):
+    '''Temperature dependent diffusivity, D = Do*exp(-Ea/RT) 
+    
+        Remember to be careful with units, T in Kelvin, R in J K^-1 mol^-1, 
+        Ea in J
+    '''    
+    
+    return Do*np.exp(Ea/(R*T))
+    
+#==============================================================================
 # Class for a grain model
 #==============================================================================
 
@@ -90,7 +102,7 @@ class Thermochronometer():
     _daughters = None
     _decayConsts = None
     _daughterProductionFactors = None
-    
+    _diffusivityFunction = None # Afunction that excepts a teperature and returns a diffusivity
     __multipleParents = None #is there more than one parent
         
     def __init__():
@@ -135,8 +147,32 @@ class Thermochronometer():
             
             return (self._daughters + sumParentsRemaining) - sumDecayComponent
         
-        tErr = lambda t: rootFunc(self._parents,self._daughters,self._decayConsts,self._productionFactors,t)
-        t0 = 1e6*np.ones_like(self._daughter) #Initial guess of 1 MA   
+        tErr = lambda t: rootFunc(self,t)
+        t0 = 1e6*np.ones_like(self._daughters) #Initial guess of 1 MA   
+            
+        return optimize.root(tErr,t0).x
+        
+    def _calcIntegratedAgeMultipleParents(self,t0 = 1e6):
+               
+        '''Calculate the raw age in years of the thermochronometer based on parent, daughter ratios.
+    
+        Given multiple parents, this is done via iterative methods. t0 is the initial
+        guess for these methods      
+        
+        '''           
+           
+        def rootFunc(self,t):
+                
+            sumParentsRemaining = np.zeros_like(self._daughters)
+            sumDecayComponent = np.zeros_like(self._daughters)    
+            for i,f in enumerate(self._daughterProductionFactors):
+                sumParentsRemaining+=f*np.sum(self._parents[i])
+                sumDecayComponent+=f*np.sum(self._parents[i]*np.exp(self._decayConsts[i]*t))
+            
+            return (self._daughters + sumParentsRemaining) - sumDecayComponent
+        
+        tErr = lambda t: rootFunc(self,t)
+        t0 = 1e6*np.ones_like(self._daughters) #Initial guess of 1 MA   
             
         return optimize.root(tErr,t0).x
         
@@ -149,8 +185,19 @@ class Thermochronometer():
         
         ''' 
     
-        return (1/self._decayConsts)*np.log(1+self._daughters/(self.daughterProductionFactors*self._parents))          
+        return (1/self._decayConsts)*np.log(1+self._daughters/(self._daughterProductionFactors*self._parents))          
+       
+    def _calcIntegratedAgeSingleParent(self):
+           
+        '''Calculate the raw age in years of the thermochronometer based on parent, daughter ratios.
+    
+        Given multiple parents, this is done via iterative methods. t0 is the initial
+        guess for these methods      
         
+        ''' 
+    
+        return (1/self._decayConsts)*np.log(1+np.sum(self._daughters)/(self._daughterProductionFactors*np.sum(self._parents)))          
+       
     def calcDecayProductionRate(self):
         '''Rate of atoms of a parent lost for
         the decay constant lam and the number of parent atoms nParents
@@ -167,8 +214,8 @@ class Thermochronometer():
         if self.__multipleParents:
             dNdt,dDdt = self._multiDecayProductionRate(self)
         else:
-            dNdt = -self.decayConts*self._parents
-            dDdt = self._productionFactors*dNdt
+            dNdt = -self._decayConsts*self._parents
+            dDdt = -self._daughterProductionFactors*dNdt
         
         return dNdt,dDdt
         
@@ -190,20 +237,68 @@ class Thermochronometer():
         AND THE PRODUCTION RATE OF THAT CONC        
         
         '''    
-        dDdt = np.zeros_like(parentConcs[0])#Preallocate space for the daughter production rate   
+        dDdt = np.zeros_like(self._parents[0])#Preallocate space for the daughter production rate   
         dNdt = [] #initialize a list for the parent decay rates
         
-        for i,f in enumerate(productionFactors):
-            dN_idt = -decayConsts[i]*parentConcs[i]
+        for i,f in enumerate(self._daughterProductionFactors):
+            dN_idt = -self._decayConsts[i]*self._parents[i]
             
-            dD_idt = productionFactors[i]*dN_idt
+            dD_idt = -f*dN_idt
 
             dDdt+= dD_idt
             dNdt.append(dN_idt)
         
         
         return np.array(dNdt),dDdt        
+
+
+class sphericalThermochronometer(Thermochronometer):
+    ''' A Basic spherical thermochronometer
+    '''
+
+    def __init__(self,rs,dr,diffusivityFunction,parentConcentrations,daughterConcentrations,decayConstants,daughterProductionFactors,external_bc = 0.0):
+        self.dr = dr
+        self.rs = rs
+        self._diffusivityFunction = diffusivityFunction
         
+        self._daughters = daughterConcentrations
+        self._parents = parentConcentrations
+            
+        self._decayConsts = decayConstants
+        self._daughterProductionFactors = daughterProductionFactors
+        self.external_bc = external_bc
+    
+
+    def calcDaughterLossRate(self,T):
+        ''' Calculates the flux of daughter product following the temperature dependent
+        diffusivity specified by the temperature T and the function of temperature
+        diffusivityFunction. E.g. 
+        
+        dNdT = D_0*exp(-Ea/RT) * grad^2 N 
+        '''
+        
+        #Apply boundary conditions - reflective and 0 concentration (outside grain)
+        N = np.hstack((self._daughters[1],self._daughters,self.external_bc))
+        
+        if N.ndim == 1:
+            grad2N = (N[2:] - 2.0*N[1:-1] + N[:-2])/(self.dr**2)
+        elif N.ndim ==2:
+            grad2N_x = (N[1:-1,2:] - 2.0*N[1:-1,1:-1] + N[1:-1,:-2])/(self.dr**2)
+            grad2N_y = (N[2:,1:-1] - 2.0*N[1:-1,1:-1] + N[:-2,1:-1])/(self.dr**2)
+            grad2N = grad2N_x + grad2N_y
+            
+        return  self._diffusivityFunction(T) * grad2N
+        
+    
+    def integrateTimestep(self,T,dt):
+        ''' Integrates the production diffusion equation
+        '''
+        dNdt,dDdt = self.calcDecayProductionRate()
+           
+        self._parents+=dNdt*dt
+        
+        self._daughters+=(dDdt + self.calcDaughterLossRate(T))*dt
+
 class HeThermochronometer(Thermochronometer):
     ''' A thermochronometer where the daughter product is He produced by decay of U, Th, Sm
     and daughter is lost by thermally activated diffusion
@@ -264,10 +359,10 @@ class ApatiteHe(HeThermochronometer):
     '''
 
     #Default diffusivities from Shuster et al., ...
-    self._Do = 1#
-    self._Ea = 1#
+    _Do = 1#
+    _Ea = 1#
     
-    def __init__(U,Th,Sm,He = 0.0,grainModel):
+    def __init__(U,Th,Sm,He,grainModel):
         pass
     
     def calcDaughterLossRate(self,T):
