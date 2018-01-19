@@ -13,7 +13,31 @@ import VolumeCalibration as VC
 import thermalTranspirationCorrection as ttc
 from matplotlib import pyplot as plt
 
-def SJdataLoader(filenames,calibrationVolume,tempGetter,pipeDiameter,gas,expansionDirection):
+class tempGetter:
+    
+    def __init__(self,filename,tGauge):
+        
+        allData = np.loadtxt(filename,delimiter = ',',skiprows = 1)
+            
+        self.allExps = allData[:,0]
+        self.allTs = allData[:,1]
+        
+        self.tGauge = tGauge
+    
+    def getTemps(self,expNum):
+        ''' Returns the temperature of the line and the temperature of the measurement
+        '''
+        thisTline = np.interp(expNum,self.allExps,self.allTs)
+        return thisTline,self.tGauge
+        
+    def plot(self,**kwargs):
+        plt.plot(self.allExps,self.allTs,'-o')
+        plt.xlabel('Expansion number')
+        plt.ylabel('Temperature')
+
+
+
+def SJdataLoader(filenames,calibrationVolume,tempFiles,pipeDiameter,gas,expansionDirection):
     '''Function to transform the data stored in filename to a series of experiments
         File is tab delimited wth columns :  Pressure (mTorr), time (sec), Experiment number, isP1 (boolean)   
         
@@ -27,8 +51,11 @@ def SJdataLoader(filenames,calibrationVolume,tempGetter,pipeDiameter,gas,expansi
     
     allExperiments = []      
 
+
     
-    for filename in filenames:
+    for i,filename in enumerate(filenames):
+    
+        tg = tempGetter(tempFiles[i],45.0)    
     
         #Load in the data
         allData = np.loadtxt(filename,delimiter = '\t',skiprows = 1)
@@ -51,7 +78,7 @@ def SJdataLoader(filenames,calibrationVolume,tempGetter,pipeDiameter,gas,expansi
             expandedData = idcs & all_isP2
             
             #Get the current temp
-            Tline,Tgauge = tempGetter.getTemps(np.mean(allts[idcs]))       
+            Tline,Tgauge = tg.getTemps(unqExp)       
             
             #Initialize a measurement class with these data
             P1s = allPs[initialData]

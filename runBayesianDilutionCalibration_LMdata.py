@@ -14,6 +14,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy import stats
 import emcee #MCMC sampler
+import corner
 
 
 #==============================================================================
@@ -99,3 +100,12 @@ for i in range(ndim):
     plt.hist(samples[:,i],100)
 #    for j in range(nwalkers):
 #        plt.plot(sampler.chain[j,:,i],'-k')
+
+#%%    
+#==============================================================================
+#     
+#==============================================================================
+
+valueLabels = ('P_0','V ratio','error')
+
+fig = corner.corner(samples,labels = valueLabels)

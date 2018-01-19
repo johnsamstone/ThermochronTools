@@ -11,7 +11,7 @@ import numpy as np
 # Definition of constants
 #==============================================================================
 R = 8.3144598 #Universal gas constant in J/(mol K)
-
+celsToKelvin = 273.15
 
 class transpirationCorrection:
     
@@ -22,10 +22,12 @@ class transpirationCorrection:
     Gas = None
     d = None
     
-    def __init__(self,Gas = 'N2',d = 0.0):
+    def __init__(self,Gas = 'N2',d = 0.0,isTempCelsius = True):
         self.Gas = Gas
         self.d = d 
-        
+        self.isTempCelsius = isTempCelsius #Do we need to convert temperatures from celsius to K ?
+
+
         if Gas == 'He':
             self.An = 0.0318
             self.Bn = 0.252
@@ -68,6 +70,11 @@ class transpirationCorrection:
         ''' Returns the corrected pressure based on the measured pressure, temperatures, 
         and the parameters of this correction
         '''
+
+        if self.isTempCelsius:
+            t_gauge += celsToKelvin
+            t_line += celsToKelvin
+
         c = self.cFun((t_gauge+t_line)/2.0) #Calculate the RMS gas velocity using the average temperature
         p_star = self.eta*c/self.d #P_star as defined in equation 4 of Setina, 1999 Metrologia
         psi = p_meas/p_star

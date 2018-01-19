@@ -10,7 +10,7 @@ Created on Thu Dec 15 15:59:53 2016
 
 __author__ = ["Sam Johnstone"]
 __copyright__ = "2016"
-__credits__ = ["Sam Johnstone", "Rob Sare"]
+__credits__ = ["Sam Johnstone"]
 __license__ = "MIT"
 __maintainer__ = "Sam Johnstone"
 __email__ = "sjohnstone@usgs.gov"
@@ -24,7 +24,7 @@ from matplotlib import cm
 from scipy import optimize
 
 
-class thermalHistory():
+class thermalHistory:
 
     ''' A Class that stores temperature-time information
     '''    
@@ -34,8 +34,11 @@ class thermalHistory():
     T = None
     name = None 
     
-    def _init_():
-        pass 
+    def __init__(self,t,T):
+        self.t = t
+        self.T = T
+
+        self.getTemp = np.inter
 
     def getTemp(self,time):
         ''' Return the temperature interpolated at the time specified 

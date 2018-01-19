@@ -11,7 +11,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy import optimize
 
-
 #==============================================================================
 # Useful functions
 #==============================================================================
@@ -212,7 +211,7 @@ class expansionExperiment:
         if sigma is None:
             sigma = self.dVu
             
-        return (1/np.sqrt(2.0*sigma**2*np.pi))*np.exp(-(Vunknown - self.Vu)**2/(2*sigma**2))
+        return (1/(np.sqrt(2.0*np.pi*sigma**2)))*np.exp(-(Vunknown - self.Vu)**2/(2*sigma**2))
         
     def _calcLikelihoodGivenCalVolume(self,Vunknown,Vcal,sigma):
         ''' For simultaneuously evaluating the likelihood of a volumes for the known
@@ -225,7 +224,7 @@ class expansionExperiment:
         elif self.expansionDirection == 'Reverse':
             Vu = Vcal/((self.P1/self.P2) - 1.0)
             
-        return (1/np.sqrt(2.0*sigma**2*np.pi))*np.exp(-(Vunknown - Vu)**2/(2*sigma**2))
+        return (1/(np.sqrt(2.0*np.pi*sigma**2)))*np.exp(-(Vunknown - Vu)**2/(2*sigma**2))
 
 #==============================================================================
 # 
@@ -260,7 +259,7 @@ class expansionExperimentSet:
         '''
         
         Vus = np.array(self.flattenParameter('Vu'))
-        dVus = 2.0*np.array(self.flattenParameter('dVu'))
+        dVus = np.array(self.flattenParameter('dVu'))
         
         VolAxis = np.linspace(np.min(Vus)*0.75,np.max(Vus)*1.25,200)
         p = np.zeros_like(VolAxis)        
@@ -308,7 +307,7 @@ class expansionExperimentSet:
         
         return L
         
-    def calcJointLikelihood(self,Vunknown,Vcal,sigma):
+    def calcJointLikelihood(self,Vunknown,Vcal,sigma,likelihood_Vcal):
         ''' Calculate the combined likelihood of the unknown volume for all the
         experiements within this set given the specified valule for the known volume
         '''
