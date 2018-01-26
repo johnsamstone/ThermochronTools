@@ -22,6 +22,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib import cm
 from scipy import optimize
+from scipy import interpolate
 
 
 class thermalHistory:
@@ -38,12 +39,7 @@ class thermalHistory:
         self.t = t
         self.T = T
 
-        self.getTemp = np.inter
-
-    def getTemp(self,time):
-        ''' Return the temperature interpolated at the time specified 
-        '''
-        return np.interp(self.t,self.T,time)
+        self.getTemp = interpolate.interp1d(t,T)
         
     def plot(self,**kwargs):
         '''Plot the thermal history'''

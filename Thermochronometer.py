@@ -10,7 +10,7 @@ Created on Thu Dec 15 15:59:53 2016
 
 __author__ = ["Sam Johnstone"]
 __copyright__ = "2016"
-__credits__ = ["Sam Johnstone", "Rob Sare"]
+__credits__ = ["Sam Johnstone"]
 __license__ = "MIT"
 __maintainer__ = "Sam Johnstone"
 __email__ = "sjohnstone@usgs.gov"
@@ -21,6 +21,8 @@ __status__ = "Production"
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import optimize
+from scipy.sparse import diags
+from scipy import linalg
 
 #==============================================================================
 # Constants used throughout
@@ -255,19 +257,49 @@ class Thermochronometer():
 class sphericalThermochronometer(Thermochronometer):
     ''' A Basic spherical thermochronometer
     '''
+    def __init__(self, radius, dr, diffusivityFunction, parentConcs, daughterConcs, decayConstants,daughterProductionFactors):
+        '''
 
-    def __init__(self,rs,dr,diffusivityFunction,parentConcentrations,daughterConcentrations,decayConstants,daughterProductionFactors,external_bc = 0.0):
+        :param radius:
+        :param dr:
+        :param diffusivityFunction:
+        :param parentConcs:
+        :param daughterConcs:
+        :param decayConstants:
+        :param daughterProductionFactors:
+        '''
+
+        self.radius
         self.dr = dr
-        self.rs = rs
+        self.rs = np.arange(dr / 2.0, radius + dr, dr)
+        self._n = len(self.rs)
         self._diffusivityFunction = diffusivityFunction
-        
-        self._daughters = daughterConcentrations
-        self._parents = parentConcentrations
-            
+
+        self._daughters = daughterConcs
+        self._parents = parentConcs
+
         self._decayConsts = decayConstants
         self._daughterProductionFactors = daughterProductionFactors
-        self.external_bc = external_bc
-    
+        self.external_bc = 0.0
+
+        # Set up matrices for solution
+        a = np.array([np.ones(self._n - 1), np.ones(self._n), np.ones(self._n - 1)])
+
+        # Create placeholders for matrices used for implicit solution (following Ketcham 2005)
+        self._M = diags(a, [-1, 0, 1])
+        self._N = diags(-a, [-1, 0, 1])
+        self._prodMatrix = diags(a,[-1,0,1])
+        self._diagIndices = np.diag_indices(self._n)
+
+        self._ejectionFraction = self._calcEjectionFraction()
+
+    def _calcEjectionFraction(self):
+        '''
+        No ejection for this thermochronometer
+        :return:
+        '''
+
+        np.ones_like(self.rs)
 
     def calcDaughterLossRate(self,T):
         ''' Calculates the flux of daughter product following the temperature dependent
@@ -279,14 +311,9 @@ class sphericalThermochronometer(Thermochronometer):
         
         #Apply boundary conditions - reflective and 0 concentration (outside grain)
         N = np.hstack((self._daughters[1],self._daughters,self.external_bc))
-        
-        if N.ndim == 1:
-            grad2N = (N[2:] - 2.0*N[1:-1] + N[:-2])/(self.dr**2)
-        elif N.ndim ==2:
-            grad2N_x = (N[1:-1,2:] - 2.0*N[1:-1,1:-1] + N[1:-1,:-2])/(self.dr**2)
-            grad2N_y = (N[2:,1:-1] - 2.0*N[1:-1,1:-1] + N[:-2,1:-1])/(self.dr**2)
-            grad2N = grad2N_x + grad2N_y
-            
+
+        grad2N = (N[2:] - 2.0*N[1:-1] + N[:-2])/(self.dr**2)
+
         return  self._diffusivityFunction(T) * grad2N
         
     
@@ -294,79 +321,45 @@ class sphericalThermochronometer(Thermochronometer):
         ''' Integrates the production diffusion equation
         '''
         dNdt,dDdt = self.calcDecayProductionRate()
-           
-        self._parents+=dNdt*dt
-        
-        self._daughters+=(dDdt + self.calcDaughterLossRate(T))*dt
+        dDdt*=self._ejectionFraction
+        self._parents+=dNdt*dt #Could make this more sophisticated
 
-class HeThermochronometer(Thermochronometer):
+        #Set up linear algebra solution
+        b = 2.0*self.dr**2/(self._diffusivityFunction(T)*dt)
+        self._M[self._diagIndices] = -(b+2.0)
+        self._N[self._diagIndices] = (2.0 - b)
+        A = -dDdt*self.r*b*dt
+        self._prodMatrix = diags(np.array([A[:-1],A,A[1:]]))
+
+        sum_RHS = self._prodMatrix + (linalg.dot(self._N,self._daughters*self.rs))
+
+
+        #Set boundary condition for external node
+        sum_RHS[-1,:] = 0
+        sum_RHS[-1,-1] = self._daughters[-1]
+        self._M[-1,:] = 0
+        self._M[-1,-1] = 1
+
+        #Set boundary condition for central node
+        sum_RHS[0,0] = -A[0] - (3.0 - b)*self._daughters[0]*self.rs[0]
+        sum_RHS[0,1] = -A[0] - self._daughters[1]*self._daughters[0]*self.rs[1]
+
+        self._daughters=np.dot(sum_RHS,linalg.inv(self._M))/self.rs
+
+
+class SphericalHeThermochronometer(Thermochronometer):
     ''' A thermochronometer where the daughter product is He produced by decay of U, Th, Sm
     and daughter is lost by thermally activated diffusion
-    '''    
-    
-    def __init__():
-        pass
-    
-    def alphaEjection(self): 
-        ''' NOTE: Hmmmm.... how exactly do I want to do this... perhaps an alpha ejection function should be its own class?
-            Or maybe a crystal model is its own class? It can have different types.... e.g. spherical, cyclindrical, apatite, zircon
-            but then perhaps these would also need their own concentrations of parent and daughter - to deal with zonation?
-            
-            or maybe I can build in flexibility to allow the grain model to overwrite the concentrations of the class?
-            
-            perhaps I want to have a a redifinition of the calc production rate function that 
-            implements some ejection?
-        '''
-        pass
-    
-    def getDiffusivity(self,T):
-        
-        ''' given the diffusivity specific to an individual mineral system 
-        (defined by sub class), what is the diffusivty at the perscribed temperature
-        
-        NOTE!!! THERE IS PROBABLY A CLEANER WAY TO DO THIS        
-        
-        '''
-        
-        return self._Do*np.exp(-self._Ea/(R*T))
-        
-
-        
-    def modelThermalHistory(self,thermalHistory,dt = 1.0):
-        
-        ''' Forward model the thermal history specified. 
-        Starting from the initial concentration of parent and daughter nuclides,
-        integrates the production and diffusion of daughter product and the loss of parents
-        '''
-        
-        for i,t in enumerate(thermalHistory.t):
-            #Calculate the rates of parent loss and daughter production
-            dPdt_i,dDdt_i = self.calcDecayProductionRate()
-            
-            #Get the current temperature
-            T = thermalHistory.getTemp(t)            
-            
-            #Calculate the rates of daughter loss via diffusion
-            dDdt_i += self.calcDaughterLossRate(T)
-            
-            #PLEASE IMPLEMENT SOMETHING BETTER THAN FORWARD EULER....
-            self._parents+= dPdt_i*dt
-            self._daughters+= dDdt_i*dt
-            
-
-class ApatiteHe(HeThermochronometer):
-    '''A class describing the apatite U-Th/He thermochronometer
     '''
 
-    #Default diffusivities from Shuster et al., ...
-    _Do = 1#
-    _Ea = 1#
-    
-    def __init__(U,Th,Sm,He,grainModel):
-        pass
-    
-    def calcDaughterLossRate(self,T):
-        ''' Calculate the rate of daughter loss due to diffusion
+    stoppingDistance = 20.0/1e6 #Stopping distance in meters
+
+    def _calcEjectionFraction(self):
         '''
-        self.grainModel.calcDaughterLossRate(T)
-    
+        Eject He based on the stopping distance and grain size, utilizes the formulation of Farley for a spherical grain
+        as summarized by Ketcham (2005)
+        :return:
+        '''
+
+        Xstr = (self.rs**2 + self.radius**2 - self.stoppingDistance**2)/(2.0*self.rs)
+        return 0.5 + (Xstr - self.rs)/(2.0*self.stoppingDistance)
