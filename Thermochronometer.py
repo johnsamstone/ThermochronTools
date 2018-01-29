@@ -100,14 +100,14 @@ class Thermochronometer():
     
     '''
     '''
-    _parents = None
-    _daughters = None
-    _decayConsts = None
-    _daughterProductionFactors = None
-    _diffusivityFunction = None # Afunction that excepts a teperature and returns a diffusivity
-    __multipleParents = None #is there more than one parent
-        
-    def __init__():
+
+    def __init__(self):
+        self._parents = None
+        self._daughters = None
+        self._decayConsts = None
+        self._daughterProductionFactors = None
+        self._diffusivityFunction = None  # Afunction that excepts a teperature and returns a diffusivity
+        self._multipleParents = None  # is there more than one parent
         pass
     
     def calcAge(self):
@@ -121,7 +121,7 @@ class Thermochronometer():
         NOTE: Should add some checks to make sure that we don't try and calculate anything without
         first defining values
         '''
-        if self.__multipleParents:
+        if self._multipleParents:
             
             return self._calcAgeMultipleParents()
         
@@ -213,8 +213,8 @@ class Thermochronometer():
         dD/dt -daughter accumulation rate (positive)
         '''
         
-        if self.__multipleParents:
-            dNdt,dDdt = self._multiDecayProductionRate(self)
+        if self._multipleParents:
+            dNdt,dDdt = self._multiDecayProductionRate()
         else:
             dNdt = -self._decayConsts*self._parents
             dDdt = -self._daughterProductionFactors*dNdt
@@ -231,7 +231,7 @@ class Thermochronometer():
         print('Error: calcDaughterLossRate not defined by subclass')
         return None
 
-    def _multiDecayRate(self):
+    def _multiDecayProductionRate(self):
         ''' For when multiple parents produce the same daughter, this calculates
         the rates of parent loss and daughter gain
         
@@ -269,7 +269,7 @@ class sphericalThermochronometer(Thermochronometer):
         :param daughterProductionFactors:
         '''
 
-        self.radius
+        self.radius = radius
         self.dr = dr
         self.rs = np.arange(dr / 2.0, radius + dr, dr)
         self._n = len(self.rs)
@@ -292,6 +292,8 @@ class sphericalThermochronometer(Thermochronometer):
         self._diagIndices = np.diag_indices(self._n)
 
         self._ejectionFraction = self._calcEjectionFraction()
+
+        self._multipleParents = parentConcs.ndim > 1
 
     def _calcEjectionFraction(self):
         '''
@@ -326,12 +328,12 @@ class sphericalThermochronometer(Thermochronometer):
 
         #Set up linear algebra solution
         b = 2.0*self.dr**2/(self._diffusivityFunction(T)*dt)
-        self._M[self._diagIndices] = -(b+2.0)
-        self._N[self._diagIndices] = (2.0 - b)
-        A = -dDdt*self.r*b*dt
-        self._prodMatrix = diags(np.array([A[:-1],A,A[1:]]))
+        self._M.setdiag(np.ones_like(self.rs)*(-b-2.0),0)
+        self._N.setdiag(np.ones_like(self.rs)*(2.0 - b),0)
+        A = -dDdt*self.rs*b*dt
+        self._prodMatrix = diags(np.array([A[:-1],A,A[1:]]),[-1,0,1])
 
-        sum_RHS = self._prodMatrix + (linalg.dot(self._N,self._daughters*self.rs))
+        sum_RHS = self._prodMatrix + (np.dot(self._N,self._daughters*self.rs))
 
 
         #Set boundary condition for external node
@@ -347,12 +349,12 @@ class sphericalThermochronometer(Thermochronometer):
         self._daughters=np.dot(sum_RHS,linalg.inv(self._M))/self.rs
 
 
-class SphericalHeThermochronometer(Thermochronometer):
+class SphericalHeThermochronometer(sphericalThermochronometer):
     ''' A thermochronometer where the daughter product is He produced by decay of U, Th, Sm
     and daughter is lost by thermally activated diffusion
     '''
 
-    stoppingDistance = 20.0/1e6 #Stopping distance in meters
+    stoppingDistance = 20.0/1e6
 
     def _calcEjectionFraction(self):
         '''
