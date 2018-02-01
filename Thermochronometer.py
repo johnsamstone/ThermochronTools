@@ -42,55 +42,25 @@ def thermDiffusivity(T,Do,Ea,R):
     '''    
     
     return Do*np.exp(Ea/(R*T))
-    
-#==============================================================================
-# Class for a grain model
-#==============================================================================
 
-class grainModel():
-    ''' A grain model handles the calculation of parameters that may be specific to thermochronometer shape.
-    This includes the diffusive loss of daughter product, redistribution and/or ejection
-    of daughter products, etc. These will be handled by sub classes
-    '''
-    
-    def __init__():
-        pass
-    
-    def calcDaughterLossRate(self,D):
-        ''' Calculate the rate of daughter product loss, e.g. due to diffusion
-        D (m^2/s) specifies the diffusivity
-        '''
-        
-        print('No specific grain geometry specified, cannot calculate daughter loss')
-        return None
-        
-    def redistributeProductionRate(self,daughterProductionRate):
-        ''' Redistributes the produced daughter product according to the relocation
-        distance of different nuclides specied by the subclasses
-        '''
-        
-        print('No specific grain geometry specified, cannot calculate daughter redistribution')
-        
-def sphere(grainModel):
-    '''
-    '''
-    def __init__():
-        pass        
-    
-def prism(grainModel):
-    
-    def __init__():
-        pass
 
-def apatite(grainModel):
-    
-    def __init__():
-        pass
-    
-def zircon(grainModel):
-    
-    def __init__():
-        pass
+def kth_diag_indices(a, k):
+    '''
+    Get the offset diagonal indices at the kth position
+    :param a: the matrix
+    :param k: relative position of diagonal (k = 0 is diag, k = -1 is below diag, k = 1 is above diag)
+    :return:
+    '''
+    rowidx, colidx = np.diag_indices_from(a)
+    colidx = colidx.copy()  # rowidx and colidx share the same buffer
+
+    if k > 0:
+        colidx += k
+    else:
+        rowidx -= k
+    k = np.abs(k)
+
+    return rowidx[:-k], colidx[:-k]
 
 #==============================================================================
 #  Classes for different thermochronometers
@@ -271,7 +241,7 @@ class sphericalThermochronometer(Thermochronometer):
 
         self.radius = radius
         self.dr = dr
-        self.rs = np.arange(dr / 2.0, radius + dr, dr)
+        self.rs = np.arange(dr / 2.0, radius, dr)
         self._n = len(self.rs)
         self._diffusivityFunction = diffusivityFunction
 
@@ -285,12 +255,23 @@ class sphericalThermochronometer(Thermochronometer):
         # Set up matrices for solution
         a = np.array([np.ones(self._n - 1), np.ones(self._n), np.ones(self._n - 1)])
 
-        # Create placeholders for matrices used for implicit solution (following Ketcham 2005)
-        self._M = diags(a, [-1, 0, 1])
-        self._N = diags(-a, [-1, 0, 1])
-        self._prodMatrix = diags(a,[-1,0,1])
-        self._diagIndices = np.diag_indices(self._n)
+        # Initialize the matrices usef for the integration
+        self._M = np.diag(np.ones(self._n),k = 0)
+        self._N = np.diag(np.ones(self._n),k = 0)
 
+        # Store the relative indices of the diagonals
+        self._km1Diag = kth_diag_indices(self._M,-1)
+        self._kDiag = np.diag_indices(self._n)
+        self._kp1Diag = kth_diag_indices(self._M,1)
+
+        #fill in the otherimportant diagonals
+        self._M[self._km1Diag] = 1.0
+        self._M[self._kp1Diag] = 1.0
+
+        self._N[self._km1Diag] = -1.0
+        self._N[self._kp1Diag] = -1.0
+
+        #Calculate the depletion fraction as a function of radius
         self._ejectionFraction = self._calcEjectionFraction()
 
         self._multipleParents = parentConcs.ndim > 1
@@ -328,33 +309,42 @@ class sphericalThermochronometer(Thermochronometer):
 
         #Set up linear algebra solution
         b = 2.0*self.dr**2/(self._diffusivityFunction(T)*dt)
-        self._M.setdiag(np.ones_like(self.rs)*(-b-2.0),0)
-        self._N.setdiag(np.ones_like(self.rs)*(2.0 - b),0)
-        A = -dDdt*self.rs*b*dt
-        self._prodMatrix = diags(np.array([A[:-1],A,A[1:]]),[-1,0,1])
+        self._M[self._kDiag] = (-b-2.0)
+        self._N[self._kDiag] = (2.0 - b)
+        A = dDdt*self.rs*b*dt
 
-        sum_RHS = self._prodMatrix + (np.dot(self._N,self._daughters*self.rs))
+        sum_RHS = (np.dot(self._N,self._daughters*self.rs)) - A
 
-
-        #Set boundary condition for external node
-        sum_RHS[-1,:] = 0
-        sum_RHS[-1,-1] = self._daughters[-1]
+        #Set boundary condition for external node - NOTE! Left off here, think I've got some BC problems
+        sum_RHS[-1] = self._daughters[-1]*self.rs[-1]
         self._M[-1,:] = 0
-        self._M[-1,-1] = 1
+        self._M[-1,-1] = -1
+
 
         #Set boundary condition for central node
-        sum_RHS[0,0] = -A[0] - (3.0 - b)*self._daughters[0]*self.rs[0]
-        sum_RHS[0,1] = -A[0] - self._daughters[1]*self._daughters[0]*self.rs[1]
+        sum_RHS[0] = (2-b)*self._daughters[0]*self.rs[0] - self._daughters[1]*self.rs[1] + self._daughters[0]*self.rs[0] -A[0]
+        self._M[0,0] = (-b - 3.0)
 
         self._daughters=np.dot(sum_RHS,linalg.inv(self._M))/self.rs
+
+    def plotDaughterProfile(self,normalize = True,**kwargs):
+        '''
+
+        :param kwargs: passed to matplotlib.plot(radialDistance,DaughterConc,**kwargs)
+        :return:
+        '''
+
+        if normalize:
+            plt.plot(self.rs/self.radius,self._daughters/np.max(self._daughters),'-',**kwargs)
+        else:
+            plt.plot(self.rs,self._daughters,'-',**kwargs)
 
 
 class SphericalHeThermochronometer(sphericalThermochronometer):
     ''' A thermochronometer where the daughter product is He produced by decay of U, Th, Sm
     and daughter is lost by thermally activated diffusion
     '''
-
-    stoppingDistance = 20.0/1e6
+    stoppingDistance = None
 
     def _calcEjectionFraction(self):
         '''
@@ -364,4 +354,135 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         '''
 
         Xstr = (self.rs**2 + self.radius**2 - self.stoppingDistance**2)/(2.0*self.rs)
-        return 0.5 + (Xstr - self.rs)/(2.0*self.stoppingDistance)
+        ret =  0.5 + (Xstr - self.rs)/(2.0*self.stoppingDistance)
+        ret[(self.radius - self.stoppingDistance) > self.rs] = 1.0
+        return ret
+
+
+class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
+    '''
+    A spherical he thermochronometer with the properties of apatite
+    '''
+    # Parameters related to decay
+    _lam_238U = 1.55125E-10
+    _lam_235U = 9.8485E-10
+    _lam_232Th = 4.9475E-11
+    _lam_147Sm = 6.539E-12
+
+    #Production factors
+    _p_238U = 8.0
+    _p_235U = 7.0
+    _p_232Th = 6.0
+    _p_147Sm = 1.0
+
+    _decayConsts = np.array([_lam_238U, _lam_235U, _lam_232Th])
+    _daughterProductionFactors = np.array([_p_238U, _p_235U, _p_232Th])
+
+    stoppingDistance = np.sum((np.array([19.68, 22.83, 22.46]) / 1e6) * _daughterProductionFactors) / np.sum(_daughterProductionFactors)
+
+    def __init__(self, radius, dr, parentConcs, daughterConcs, diffusivityParams = 'Cherniak'):
+        '''
+
+        :param radius:
+        :param dr:
+        :param diffusivityFunction:
+        :param parentConcs:
+        :param daughterConcs:
+        :param decayConstants:
+        :param daughterProductionFactors:
+        '''
+
+        self.radius = radius
+        self.dr = dr
+        self.rs = np.arange(dr / 2.0, radius, dr)
+        self._n = len(self.rs)
+        self._assignDiffusivityFunction(diffusivityParams)
+
+        self._daughters = daughterConcs
+        self._parents = parentConcs
+
+        # Set up matrices for solution
+        a = np.array([np.ones(self._n - 1), np.ones(self._n), np.ones(self._n - 1)])
+
+        # Initialize the matrices usef for the integration
+        self._M = np.diag(np.ones(self._n),k = 0)
+        self._N = np.diag(np.ones(self._n),k = 0)
+
+        # Store the relative indices of the diagonals
+        self._km1Diag = kth_diag_indices(self._M,-1)
+        self._kDiag = np.diag_indices(self._n)
+        self._kp1Diag = kth_diag_indices(self._M,1)
+
+        #fill in the otherimportant diagonals
+        self._M[self._km1Diag] = 1.0
+        self._M[self._kp1Diag] = 1.0
+
+        self._N[self._km1Diag] = -1.0
+        self._N[self._kp1Diag] = -1.0
+
+        #Calculate the depletion fraction as a function of radius
+        self._ejectionFraction = self._calcEjectionFraction()
+
+        self._multipleParents = parentConcs.ndim > 1
+
+    def _assignDiffusivityFunction(self,diffusivityParams):
+        '''
+
+        :param diffusivityParams:
+        :return:
+        '''
+
+        if diffusivityParams is 'Cherniak':
+
+            ##thermal diffusivty - should probably build all this into a file and just read from that, easier to update, switch between values
+            # These values from Cherniak, Watson, and Thomas, 2000
+            Do = 2.1E-6 * (60.0 * 60.0 * 24 * 365.0)  # m^2/s -> m^2 / yr
+            Ea = (-140.0) * 1000.0  # kJ/mol -> J/mol
+            R = 8.3144598  # J/K /mol Universal gas constant
+
+        elif diffusivityParams is 'Farley':
+            # These values from Farley 2000
+            Do = 157680.0 # m^2 / yr
+            Ea = -137653.6  # J/mol
+            R = 8.3144598  # J/K /mol Universal gas constant
+
+        self._diffusivityFunction = lambda T: thermDiffusivity(T, Do, Ea, R)
+
+    def calcAge(self, applyFt = True):
+        '''
+        :param applyFt: boolean, should the alpha ejection correction be applied
+        :return: age
+        '''
+
+        Volumes = (4.0/3.0)*np.pi*((self.rs + self.dr/2.0)**3 - (self.rs - self.dr/2.0)**3)
+        Volumes[0] = (4.0/3.0)*np.pi*(self.rs[0] + self.dr/2.0)**3
+
+        parents = [np.sum(parent*Volumes) for parent in self._parents]
+        daughters = np.sum(self._daughters*Volumes)
+
+        def rootFunc(self, t):
+            sumParentsRemaining = 0.0
+            sumDecayComponent = 0.0
+            for i, f in enumerate(self._daughterProductionFactors):
+                sumParentsRemaining += f * parents[i]
+                sumDecayComponent += f * parents[i] * np.exp(self._decayConsts[i] * t)
+
+            return (daughters + sumParentsRemaining) - sumDecayComponent
+
+        tErr = lambda t: rootFunc(self, t)
+        t0 = 1e6 # Initial guess of 1 MA
+
+        age =  optimize.root(tErr, t0).x
+
+        if applyFt:
+            age/=self.calcFt()
+
+        return age/1e6
+
+    def calcFt(self):
+        '''
+        Calculate the alpha ejection correction of Farley, 1996
+        :return: Ft, the fraction of alpha particles that would be retained
+        '''
+
+        return 1 - (3.0*self.stoppingDistance)/(4.0*self.radius) + self.stoppingDistance**3/(16.0*self.radius**3)
