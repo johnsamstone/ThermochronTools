@@ -38,7 +38,7 @@ HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,parentConcs,daugh
 thermalHistory = tHist.thermalHistory(timePoints,thermalPoints)
 
 time = timePoints[0]
-dt = 10e3
+dt = 50e3
 while time > timePoints[-1]:
     HeModel.integrateTimestep(thermalHistory.getTemp(time),dt)
     time-=dt
@@ -100,7 +100,7 @@ plt.legend(loc = 'best')
 #########################################################################################################
 
 timePoints = np.array([60.0, 2.5, 0.0])*1e6
-thermalPoints = np.array([120.0, 70.0, 20.0])+273.15
+thermalPoints = np.array([120.0, 65.0, 20.0])+273.15
 
 HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,parentConcs,daughterConcs,diffusivityParams=diffusivity)
 thermalHistory = tHist.thermalHistory(timePoints,thermalPoints)

@@ -454,8 +454,9 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
         :return: age
         '''
 
-        Volumes = (4.0/3.0)*np.pi*((self.rs + self.dr/2.0)**3 - (self.rs - self.dr/2.0)**3)
-        Volumes[0] = (4.0/3.0)*np.pi*(self.rs[0] + self.dr/2.0)**3
+        Volumes = (4.0/3.0)*np.pi*((self.rs + self.dr/2.0)**3 - (self.rs - (self.dr/2.0))**3)
+        Volumes[0] = (4.0/3.0)*np.pi*(self.rs[0] + (self.dr/2.0))**3
+        Volumes[-1] = (4.0/3.0)*np.pi*(self.radius**3 - (self.rs[-1] - (self.dr/2.0))**3)
 
         parents = [np.sum(parent*Volumes) for parent in self._parents]
         daughters = np.sum(self._daughters*Volumes)

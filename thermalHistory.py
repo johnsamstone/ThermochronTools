@@ -50,7 +50,31 @@ class thermalHistory:
             
         plt.xlabel('Time (Ma)',fontsize = 13)
         plt.ylabel('Temperature (C)',fontsize = 13)
-        
+
+    def prependtT(self,t,T):
+        '''
+        Add this temp and time to the begenning of the time temp history
+        :param t:
+        :param T:
+        :return:
+        '''
+        self.t = np.append(t,self.t)
+        self.T = np.append(T,self.T)
+
+        self.getTemp = interpolate.interp1d(self.t,self.T)
+
+    def appendtT(self,t,T):
+        '''
+        Add this temp and time to the end of the time temp history
+        :param t:
+        :param T:
+        :return:
+        '''
+        self.t = np.append(self.t,t)
+        self.T = np.append(self.T,T)
+
+        self.getTemp = interpolate.interp1d(self.t,self.T)
+
 class thermalTransect():
     ''' A Class that stores a series of thermal histories, intended to represent 
     a transect. 
