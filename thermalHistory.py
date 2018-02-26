@@ -39,7 +39,7 @@ class thermalHistory:
         self.t = t
         self.T = T
 
-        self.getTemp = interpolate.interp1d(t,T)
+        self.getTemp = interpolate.interp1d(t,T,fill_value=(T[0],T[-1]),bounds_error=False)
         
     def plot(self,**kwargs):
         '''Plot the thermal history'''
@@ -61,7 +61,7 @@ class thermalHistory:
         self.t = np.append(t,self.t)
         self.T = np.append(T,self.T)
 
-        self.getTemp = interpolate.interp1d(self.t,self.T)
+        self.getTemp = interpolate.interp1d(self.t,self.T,fill_value=(self.T[0],self.T[-1]),bounds_error=False)
 
     def appendtT(self,t,T):
         '''
@@ -74,6 +74,19 @@ class thermalHistory:
         self.T = np.append(self.T,T)
 
         self.getTemp = interpolate.interp1d(self.t,self.T)
+
+    def saveToFile(self,filePath):
+        '''
+        Save this thermal history to a comma delimited text file
+        :param filePath:
+        :return:
+        '''
+
+        formatCode = '%.1f, %.0f \n'
+        with open(filePath,'rw') as f:
+            f.write('t, T\n')
+            for t,T in zip(self.t,self.T):
+                f.write(formatCode%(t,T))
 
 class thermalTransect():
     ''' A Class that stores a series of thermal histories, intended to represent 
