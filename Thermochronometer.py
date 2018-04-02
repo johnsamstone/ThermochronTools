@@ -276,6 +276,71 @@ class sphericalThermochronometer(Thermochronometer):
 
         self._multipleParents = parentConcs.ndim > 1
 
+
+    def _determineTimeStep(self,tNow,tStop,tempFromTimeFun,f):
+        '''
+        Function to determine the largest timestep that results in negligable changes in temperature across integration
+        :param tNow:
+        :param tStop:
+        :param tempFromTimeFun:
+        :return:
+        '''
+
+        def rootfun(dt):
+            diffFun = lambda t: tempFromTimeFun(t)
+            return np.abs(diffFun(tNow) - diffFun(tNow+dt)) - f
+
+        #Split this up into 10 log bins
+        dts = np.logspace(0,np.log10(1e7),100)
+
+        #Calculate how close this is to the acceptable fraction
+        errs = np.zeros_like(dts)
+        for i in range(len(dts)):
+            errs[i] = rootfun(dts[i])
+
+        #Find the first unacceptable fraction
+        idx = np.argwhere(errs < 0)[-1]
+        dt = dts[idx]
+
+        return dt
+
+
+    def integrateThermalHistory_variableStep(self,tStart,tStop,tempFromTimeFun, f = 5):
+        '''
+        Integrate through the provided thermal history, allowing the time step to vary to minimize misfit b/w temps b/w diffusivities
+        :param tStart: time to start the integration
+        :param tStop: time to end the integration
+        :param tempFromTimeFun: function that given a time will return a temperature in K
+        :param f: the target misfit between diffusivities at the start and end of timesteps
+        :return: None, update the values of this instance
+        '''
+
+        t = tStart
+
+        while t<tStop:
+            dt = self._determineTimeStep(t,tStop,tempFromTimeFun,f)
+            if t+dt > tStop:
+                dt = tStop - t
+            self.integrateTimestep(tempFromTimeFun(t + (dt/2.0)),dt)
+            t+=dt
+
+    def integrateThermalHistory(self,tStart,tStop,dt,tempFromTimeFun):
+        '''
+        Integrate through the provided thermal history
+        :param tStart: time to start the integration
+        :param tStop: time to stop the integration
+        :param tempFromTimeFun: function that given a time will return a temperature in K
+        :return: None, updates the values of this instance
+        '''
+
+        t = tStart
+
+        while t < tStop:
+            if t+dt > tStop:
+                dt = tStop - t
+            self.integrateTimestep(tempFromTimeFun(t + (dt/2.0)),dt)
+            t+=dt
+
     def _calcEjectionFraction(self):
         '''
         No ejection for this thermochronometer
@@ -308,7 +373,9 @@ class sphericalThermochronometer(Thermochronometer):
         self._parents+=dNdt*dt #Could make this more sophisticated
 
         #Set up linear algebra solution
-        b = 2.0*self.dr**2/(self._diffusivityFunction(T)*dt)
+        # D = (self._diffusivityFunction(T_i) + self._diffusivityFunction(T_ip1))/2.0
+        D = self._diffusivityFunction(T)
+        b = 2.0*self.dr**2/(D*dt)
         self._M[self._kDiag] = (-b-2.0)
         self._N[self._kDiag] = (2.0 - b)
         A = dDdt*self.rs*b*dt

@@ -73,7 +73,7 @@ class thermalHistory:
         self.t = np.append(self.t,t)
         self.T = np.append(self.T,T)
 
-        self.getTemp = interpolate.interp1d(self.t,self.T)
+        self.getTemp = interpolate.interp1d(self.t,self.T,fill_value=(self.T[0],self.T[-1]),bounds_error=False)
 
     def saveToFile(self,filePath):
         '''
@@ -83,7 +83,7 @@ class thermalHistory:
         '''
 
         formatCode = '%.1f, %.0f \n'
-        with open(filePath,'rw') as f:
+        with open(filePath,'w') as f:
             f.write('t, T\n')
             for t,T in zip(self.t,self.T):
                 f.write(formatCode%(t,T))
