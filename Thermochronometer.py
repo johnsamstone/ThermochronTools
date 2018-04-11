@@ -286,13 +286,11 @@ class sphericalThermochronometer(Thermochronometer):
             diffFun = lambda t: tempFromTimeFun(t)
             return np.abs(diffFun(tNow) - diffFun(tNow + dt)) - f
 
-        # Split this up into 10 log bins
-        dts = np.logspace(0, np.log10(1e7), 100)
+        # Split this up into log bins
+        dts = np.logspace(0, 7, 100)
 
         # Calculate how close this is to the acceptable fraction
-        errs = np.zeros_like(dts)
-        for i in range(len(dts)):
-            errs[i] = rootfun(dts[i])
+        errs = rootfun(dts)
 
         # Find the first unacceptable fraction
         idx = np.argwhere(errs < 0)[-1]

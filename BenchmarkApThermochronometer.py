@@ -27,21 +27,26 @@ daughterConcs = np.zeros_like(L)
 
 
 diffusivity = 'Farley'
+
+#Whats the greatest number of degrees allowable in a given time step
+maxDegreeJump = 2
+dt = 1e5
+
 #########################################################################################################
 #### First test, top row in figure 10
 #########################################################################################################
 
 timePoints = np.array([60.0, 50.0, 0.0])*1e6
-thermalPoints = np.array([120.0, 20.0, 20.0])+273.15
+thermalPoints = np.array([120.0, 20.0, 20.1])+273.15
 
 HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,parentConcs,daughterConcs,diffusivityParams=diffusivity)
-thermalHistory = tHist.thermalHistory(timePoints,thermalPoints)
+thermalHistory = tHist.thermalHistory(-timePoints,thermalPoints)
 
-time = timePoints[0]
-dt = 50e3
-while time > timePoints[-1]:
-    HeModel.integrateTimestep(thermalHistory.getTemp(time),dt)
-    time-=dt
+#Integrate this thermal history with a variable timestemp
+HeModel.integrateThermalHistory_variableStep(-timePoints[0], timePoints[-1], thermalHistory.getTemp, f=maxDegreeJump)
+
+#Integrate this thermal history with a fixed timestemp
+# HeModel.integrateThermalHistory(-timePoints[0], timePoints[-1],dt, thermalHistory.getTemp)
 
 plt.subplot(3,2,1)
 plt.plot(timePoints/1e6,thermalPoints - 273.15,'-ok')
@@ -70,13 +75,14 @@ timePoints = np.array([60.0, 0.0])*1e6
 thermalPoints = np.array([120.0, 20.0])+273.15
 
 HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,parentConcs,daughterConcs,diffusivityParams=diffusivity)
-thermalHistory = tHist.thermalHistory(timePoints,thermalPoints)
+thermalHistory = tHist.thermalHistory(-timePoints,thermalPoints)
 
-time = timePoints[0]
-dt = 10e3
-while time > timePoints[-1]:
-    HeModel.integrateTimestep(thermalHistory.getTemp(time),dt)
-    time-=dt
+#Integrate this thermal history with a variable timestemp
+HeModel.integrateThermalHistory_variableStep(-timePoints[0], timePoints[-1], thermalHistory.getTemp, f=maxDegreeJump)
+
+#Integrate this thermal history with a fixed timestemp
+# HeModel.integrateThermalHistory(-timePoints[0], timePoints[-1],dt, thermalHistory.getTemp)
+
 
 plt.subplot(3,2,3)
 plt.plot(timePoints/1e6,thermalPoints - 273.15,'-ok')
@@ -103,13 +109,14 @@ timePoints = np.array([60.0, 2.5, 0.0])*1e6
 thermalPoints = np.array([120.0, 65.0, 20.0])+273.15
 
 HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,parentConcs,daughterConcs,diffusivityParams=diffusivity)
-thermalHistory = tHist.thermalHistory(timePoints,thermalPoints)
+thermalHistory = tHist.thermalHistory(-timePoints,thermalPoints)
 
-time = timePoints[0]
-dt = 10e3
-while time > timePoints[-1]:
-    HeModel.integrateTimestep(thermalHistory.getTemp(time),dt)
-    time-=dt
+#Integrate this thermal history with a variable timestemp
+HeModel.integrateThermalHistory_variableStep(-timePoints[0], timePoints[-1], thermalHistory.getTemp, f=maxDegreeJump)
+
+#Integrate this thermal history with a fixed timestemp
+# HeModel.integrateThermalHistory(-timePoints[0], timePoints[-1],dt, thermalHistory.getTemp)
+
 
 plt.subplot(3,2,5)
 plt.plot(timePoints/1e6,thermalPoints - 273.15,'-ok')
