@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 
 #Default params
 Radius = 100.0 / 1e6  # Crystal radius in m
-dx = 1.0 / 1e6  # spacing of nodes in m
+dx =1.0 / 1e6  # spacing of nodes in m
 L =  np.arange(dx / 2.0, Radius, dx)
 Vs = (4.0/3.0)*np.pi*((L+(dx/2))**3 - (L-(dx/2.0))**3)
 weights = Vs/np.sum(Vs)
@@ -30,7 +30,8 @@ diffusivity = 'Farley'
 
 #Whats the greatest number of degrees allowable in a given time step
 maxDegreeJump = 2
-dt = 1e5
+dt = 1e4
+
 
 #########################################################################################################
 #### First test, top row in figure 10
@@ -117,7 +118,6 @@ HeModel.integrateThermalHistory_variableStep(-timePoints[0], timePoints[-1], the
 #Integrate this thermal history with a fixed timestemp
 # HeModel.integrateThermalHistory(-timePoints[0], timePoints[-1],dt, thermalHistory.getTemp)
 
-
 plt.subplot(3,2,5)
 plt.plot(timePoints/1e6,thermalPoints - 273.15,'-ok')
 plt.ylim(200.0,0)
@@ -135,3 +135,47 @@ plt.grid()
 plt.ylabel('Normalized Concentration')
 plt.xlabel('Normalized Radius')
 plt.legend(loc = 'best')
+
+#########################################################################################################
+#### Fourth test,Shuster and Farley ratio evolution diagram
+#########################################################################################################
+
+timePoints = np.array([15.0, 0.0])*1e6
+thermalPoints = np.array([90.0, 25.0])+273.15
+
+stepHeatTemps = np.arange(240.0,600.0,20.0)+273.15
+stepHeatTemps = np.hstack((stepHeatTemps))
+stepHeatDurations = np.ones_like(stepHeatTemps)*0.5/(24.0*365.0) #half an hour each, converted to years
+
+HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,parentConcs,daughterConcs,diffusivityParams=diffusivity)
+thermalHistory = tHist.thermalHistory(-timePoints,thermalPoints)
+
+#Integrate this thermal history with a variable timestemp
+# HeModel.integrateThermalHistory_variableStep(-timePoints[0], timePoints[-1], thermalHistory.getTemp, f=maxDegreeJump)
+
+#Integrate this thermal history with a fixed timestemp
+HeModel.integrateThermalHistory(-timePoints[0], timePoints[-1],dt, thermalHistory.getTemp)
+
+f,axs = plt.subplots(1,3)
+axs[0].plot(timePoints/1e6,thermalPoints - 273.15,'-ok')
+axs[0].set_ylim(200.0,0)
+axs[0].set_xlim(100.0,0)
+axs[0].grid()
+axs[0].set_ylabel('Temperature C')
+axs[0].set_xlabel('Time (Ma)')
+
+plt.sca(axs[1])
+thisAge = HeModel.calcAge(applyFt=True)
+HeModel.plotDaughterProfile(normalize=True,linewidth=2, color='k',label = 'He age = %.1f Ma'%thisAge)
+axs[1].set_ylim(0,1)
+axs[1].set_xlim(0,1)
+axs[1].grid()
+axs[1].set_ylabel('Normalized Concentration')
+axs[1].set_xlabel('Normalized Radius')
+axs[1].legend(loc = 'best')
+
+f_3He,f_4He,F3He,RsRb = HeModel.integrate43experiment(stepHeatTemps,stepHeatDurations,plotProfileEvolution=True)
+
+axs[2].plot(np.cumsum(F3He),RsRb,'-ok')
+axs[2].set_xlabel(r'$\sum F ^3He$',fontsize = 14)
+axs[2].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)

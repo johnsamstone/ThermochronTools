@@ -21,6 +21,9 @@ from matplotlib import pyplot as plt
 from scipy import optimize
 from scipy.sparse import diags
 from scipy import linalg
+from matplotlib import cm
+from scipy import integrate
+
 
 # ==============================================================================
 # Constants used throughout
@@ -61,6 +64,27 @@ def kth_diag_indices(a, k):
     return rowidx[:-k], colidx[:-k]
 
 
+def calcFt(radius, stoppingDistance):
+    '''
+    Calculate the alpha ejection correction of Farley, 1996
+    :return: Ft, the fraction of alpha particles that would be retained
+    '''
+
+    return 1 - (3.0 * stoppingDistance) / (4.0 * radius) + stoppingDistance ** 3 / (
+    16.0 * radius ** 3)
+
+def approxRadiusFromFt(Ft,stoppingDistance, radiusGuess):
+    '''
+
+    :param stoppingDitance:
+    :param radiusGuess:
+    :return:
+    '''
+
+    rootfun = lambda r : Ft - calcFt(r,stoppingDistance)
+
+    return optimize.newton(rootfun,radiusGuess)
+    
 # ==============================================================================
 #  Classes for different thermochronometers
 # ==============================================================================
@@ -273,6 +297,13 @@ class sphericalThermochronometer(Thermochronometer):
 
         self._multipleParents = parentConcs.ndim > 1
 
+        #What are the discrete volumes of each node spherical shell
+        Volumes = (4.0 / 3.0) * np.pi * ((self.rs + self.dr / 2.0) ** 3 - (self.rs - (self.dr / 2.0)) ** 3)
+        Volumes[0] = (4.0 / 3.0) * np.pi * (self.rs[0] + (self.dr / 2.0)) ** 3
+        Volumes[-1] = (4.0 / 3.0) * np.pi * (self.radius ** 3 - (self.rs[-1] - (self.dr / 2.0)) ** 3)
+
+        self._ShellVolumes = Volumes
+
     def _determineTimeStep(self, tNow, tStop, tempFromTimeFun, f):
         '''
         Function to determine the largest timestep that results in negligable changes in temperature across integration
@@ -364,27 +395,8 @@ class sphericalThermochronometer(Thermochronometer):
         dDdt *= self._ejectionFraction
         self._parents += dNdt * dt  # Could make this more sophisticated
 
-        # Set up linear algebra solution
-        # D = (self._diffusivityFunction(T_i) + self._diffusivityFunction(T_ip1))/2.0
-        D = self._diffusivityFunction(T)
-        b = 2.0 * self.dr ** 2 / (D * dt)
-        self._M[self._kDiag] = (-b - 2.0)
-        self._N[self._kDiag] = (2.0 - b)
-        A = dDdt * self.rs * b * dt
-
-        sum_RHS = (np.dot(self._N, self._daughters * self.rs)) - A
-
-        # Set boundary condition for external node - NOTE! Left off here, think I've got some BC problems
-        sum_RHS[-1] = self._daughters[-1] * self.rs[-1]
-        self._M[-1, :] = 0
-        self._M[-1, -1] = -1
-
-        # Set boundary condition for central node
-        sum_RHS[0] = (2 - b) * self._daughters[0] * self.rs[0] - self._daughters[1] * self.rs[1] + self._daughters[0] * \
-                                                                                                   self.rs[0] - A[0]
-        self._M[0, 0] = (-b - 3.0)
-
-        self._daughters = np.dot(sum_RHS, linalg.inv(self._M)) / self.rs
+        #Integrate the production and diffution of the daughter
+        self._daughters = self._integrateDiffusant(self._daughters,dDdt,T,dt)
 
     def plotDaughterProfile(self, normalize=True, **kwargs):
         '''
@@ -398,6 +410,49 @@ class sphericalThermochronometer(Thermochronometer):
         else:
             plt.plot(self.rs, self._daughters, '-', **kwargs)
 
+    def _integrateDiffusant(self,diffusant,Production,T,dt):
+        '''
+        Integrate the production/diffusion equation in a sphere following the finite-difference solution of
+        Ketcham 2005
+        :param diffusant: The concentrations of the thing being diffused (e.g. the Daughter isotope)
+        :param Production: The rate of production of the daughter isotope
+        :param T: The temperature that is foverning diffusion
+        :param dt: The timestep to integrate for
+        :return:
+        '''
+
+        # Set up linear algebra solution
+        # D = (self._diffusivityFunction(T_i) + self._diffusivityFunction(T_ip1))/2.0
+        D = self._diffusivityFunction(T)
+        b = 2.0 * self.dr ** 2 / (D * dt)
+        self._M[self._kDiag] = (-b - 2.0)
+        self._N[self._kDiag] = (2.0 - b)
+        A = Production * self.rs * b * dt
+
+        sum_RHS = (np.dot(self._N, diffusant * self.rs)) - A
+
+        # Set boundary condition for external node
+        sum_RHS[-1] = diffusant[-1] * self.rs[-1]
+        self._M[-1, :] = 0
+        self._M[-1, -1] = -1
+
+        # Set boundary condition for central node
+        sum_RHS[0] = (2 - b) * diffusant[0] * self.rs[0] - diffusant[1] * self.rs[1] + diffusant[0] * self.rs[0] - A[0]
+        self._M[0, 0] = (-b - 3.0)
+
+        return np.dot(sum_RHS, linalg.inv(self._M)) / self.rs
+
+    def _volumeIntegral(self,quantity):
+        '''
+
+        :param quantity: the radial profile of some quantity
+        :return: integral of the quantity over the spherical domain
+        '''
+
+        # return np.sum(self._ShellVolumes*quantity)
+        integralQuantity = np.hstack((0,4.0*np.pi*quantity*self.rs**2,0))
+        positions = np.hstack((0,self.rs,self.radius))
+        return integrate.simps(integralQuantity,positions)
 
 class SphericalHeThermochronometer(sphericalThermochronometer):
     ''' A thermochronometer where the daughter product is He produced by decay of U, Th, Sm
@@ -416,6 +471,95 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         ret = 0.5 + (Xstr - self.rs) / (2.0 * self.stoppingDistance)
         ret[(self.radius - self.stoppingDistance) > self.rs] = 1.0
         return ret
+
+    def integrate43experiment(self,Temps,Durations,plotProfileEvolution = False):
+        '''
+
+        :param Temps: The temperatures of each step
+        :param Durations: The durations of each step
+        :return: He_released, Rstep/Rbulk
+        '''
+
+        if plotProfileEvolution:
+            f,axs = plt.subplots(1,2)
+            cmap = cm.get_cmap('coolwarm')
+            colors = [cmap(i) for i in np.linspace(0,1,len(Temps))]
+
+        #Creating copies of the 'doped' profile and the daughter profile
+        #To forward diffuse
+
+        #If using ketcham solution for diffusion
+        conc_4 = np.copy(self._daughters)
+
+        conc_3 = np.ones_like(conc_4)*np.mean(conc_4) + 1e-5*np.random.randn(len(conc_4))*np.mean(conc_4)
+        if plotProfileEvolution:
+            axs[0].plot(self.rs/self.radius,conc_3,'-k')
+            axs[1].plot(self.rs/self.radius,self._daughters,'-k')
+
+        #Create a second copy, to difference the step heated and original profile to calculate
+        #How much gas was lost
+        total3_0 = self._volumeIntegral(conc_3)
+        total4_0 = self._volumeIntegral(conc_4)
+
+        #Preallocate some space for the results of step heating
+        f_4He = np.zeros(len(Temps)+1)
+        f_3He = np.zeros(len(Temps)+1)
+
+        #f_0 = 0 (to start, all the gas is remaining) ... but Shuster seems to write in another way... that f_0 = 1? perhaps he means F_0 = 1?
+        # f_4He[0] = 1.0
+        # f_3He[0] = 1.0
+
+        def CJDiffuse(C,D,delt,r,a):
+
+            Ks = np.arange(1,101)
+            tao = D*delt/(a**2)
+            expTerm = lambda k: np.exp(-(k**2)*(np.pi**2)*tao)
+            sinTerm = lambda k: np.sin(k*np.pi*r/a)
+            integralTerm = lambda k : integrate.simps(sinTerm(k)*r*C,r)
+
+            C_diffed = np.zeros_like(C)
+
+            for k in Ks:
+                C_diffed+=expTerm(k)*sinTerm(k)*integralTerm(k)
+
+            return C_diffed*2.0/(r*a)
+
+        for i in range(len(Temps)):
+            T = Temps[i]
+            dt =Durations[i]
+
+            conc_3 = CJDiffuse(conc_3,self._diffusivityFunction(T),dt,self.rs,self.radius)
+            conc_4 = CJDiffuse(conc_4,self._diffusivityFunction(T),dt,self.rs,self.radius)
+
+            #For non-mirrored profile
+            totalHe3_i = self._volumeIntegral(conc_3)
+            totalHe4_i = self._volumeIntegral(conc_4)
+
+            #First step is i=1, becuase at i = 0, f = 1 (all gas remaining),
+            #Calculate the remaining gas fraction normalized by the initial gas content
+            f_3He[i+1] = (total3_0 - totalHe3_i)/total3_0
+            f_4He[i+1] = (total4_0 - totalHe4_i)/total4_0
+
+            if plotProfileEvolution:
+                axs[0].plot(self.rs/self.radius,conc_3,label = str(i),color = colors[i])
+                axs[1].plot(self.rs/self.radius,conc_4,label = str(i),color = colors[i])
+
+        if plotProfileEvolution:
+            axs[0].set_ylabel(r'$[3^He]$',fontsize = 14)
+            axs[0].set_xlabel(r'$r/a$',fontsize = 14)
+            axs[1].set_ylabel(r'$[4^He]$', fontsize=14)
+            axs[1].set_xlabel(r'$r/a$', fontsize=14)
+
+        #Calculate the gas release fraction - Note: Shuster & Farley have this written as f_(i-1) - f(i), which seems like the wrong sign to me...
+        F3He = f_3He[1:] - f_3He[:-1]
+
+        F4He = f_4He[1:] - f_4He[:-1]
+
+        RBulk = total4_0/total3_0
+
+        RstepRbulk = (F4He/F3He)/RBulk
+
+        return f_3He,f_4He,F3He,RstepRbulk
 
 
 class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
@@ -485,6 +629,13 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
 
         self._multipleParents = parentConcs.ndim > 1
 
+        #What are the discrete volumes of each node spherical shell
+        Volumes = (4.0 / 3.0) * np.pi * ((self.rs + self.dr / 2.0) ** 3 - (self.rs - (self.dr / 2.0)) ** 3)
+        Volumes[0] = (4.0 / 3.0) * np.pi * (self.rs[0] + (self.dr / 2.0)) ** 3
+        Volumes[-1] = (4.0 / 3.0) * np.pi * (self.radius ** 3 - (self.rs[-1] - (self.dr / 2.0)) ** 3)
+
+        self._ShellVolumes = Volumes
+
     def _assignDiffusivityFunction(self, diffusivityParams):
         '''
 
@@ -513,13 +664,16 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
         :param applyFt: boolean, should the alpha ejection correction be applied
         :return: age
         '''
+        #
+        # Volumes = (4.0 / 3.0) * np.pi * ((self.rs + self.dr / 2.0) ** 3 - (self.rs - (self.dr / 2.0)) ** 3)
+        # Volumes[0] = (4.0 / 3.0) * np.pi * (self.rs[0] + (self.dr / 2.0)) ** 3
+        # Volumes[-1] = (4.0 / 3.0) * np.pi * (self.radius ** 3 - (self.rs[-1] - (self.dr / 2.0)) ** 3)
 
-        Volumes = (4.0 / 3.0) * np.pi * ((self.rs + self.dr / 2.0) ** 3 - (self.rs - (self.dr / 2.0)) ** 3)
-        Volumes[0] = (4.0 / 3.0) * np.pi * (self.rs[0] + (self.dr / 2.0)) ** 3
-        Volumes[-1] = (4.0 / 3.0) * np.pi * (self.radius ** 3 - (self.rs[-1] - (self.dr / 2.0)) ** 3)
+        # parents = [np.sum(parent * Volumes) for parent in self._parents]
+        # daughters = np.sum(self._daughters * Volumes)
 
-        parents = [np.sum(parent * Volumes) for parent in self._parents]
-        daughters = np.sum(self._daughters * Volumes)
+        parents = [self._volumeIntegral(parent) for parent in self._parents]
+        daughters = self._volumeIntegral(self._daughters)
 
         def rootFunc(self, t):
             sumParentsRemaining = 0.0
