@@ -143,8 +143,7 @@ plt.legend(loc = 'best')
 timePoints = np.array([15.0, 0.0])*1e6
 thermalPoints = np.array([90.0, 25.0])+273.15
 
-stepHeatTemps = np.arange(240.0,600.0,20.0)+273.15
-stepHeatTemps = np.hstack((stepHeatTemps))
+stepHeatTemps = np.arange(280.0,600.0,10.0)+273.15
 stepHeatDurations = np.ones_like(stepHeatTemps)*0.5/(24.0*365.0) #half an hour each, converted to years
 
 HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,parentConcs,daughterConcs,diffusivityParams=diffusivity)
@@ -179,3 +178,82 @@ f_3He,f_4He,F3He,RsRb = HeModel.integrate43experiment(stepHeatTemps,stepHeatDura
 axs[2].plot(np.cumsum(F3He),RsRb,'-ok')
 axs[2].set_xlabel(r'$\sum F ^3He$',fontsize = 14)
 axs[2].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)
+
+
+#########################################################################################################
+#### Fifth test,Inversion using Shuster and Farley ratio evolution diagram
+#########################################################################################################
+
+from scipy.optimize import minimize
+dt = 1e5
+
+#First create a function that creates a thermal history (flat isotherm then cooling from that)
+def createThermalHistory(T_0,t_0,t_c):
+    '''
+    This is a cooling history that starts with isothermal cooling and then cools rapidly to the surface
+    :param T_0: Initial temperature in C
+    :param t_0: Ma, Starting time of cooling history (will probably leave this fixed as it may often be unconstrained)
+    :param t_c: Ma, Starting time of cooling
+    :return:
+    '''
+
+    timePoints = np.array([t_0,t_c,0]) * 1e6
+    thermalPoints = np.array([T_0,T_0,0]) + 273.15
+
+    return tHist.thermalHistory(-timePoints,thermalPoints)
+
+def predictRatioEvolution(thermalHistory,stepHeatTemps,stepHeatDurations):
+    HeModel = tchron.SphericalApatiteHeThermochronometer(Radius, dx, parentConcs, daughterConcs, diffusivityParams=diffusivity)
+    HeModel.integrateThermalHistory(-timePoints[0],-timePoints[-1],dt,thermalHistory.getTemp)
+    f_3He, f_4He, F3He, RsRb = HeModel.integrate43experiment(stepHeatTemps, stepHeatDurations,
+                                                             plotProfileEvolution=False)
+    return np.cumsum(F3He),RsRb
+
+def L2norm(sumF3He_obs,RsRb_obs,T_0,t_0,t_c,stepHeatTemps,stepHeatDurations):
+    thist = createThermalHistory(T_0,t_0,t_c)
+    sumF3He_exp, RsRb_exp = predictRatioEvolution(thist,stepHeatTemps,stepHeatDurations)
+    goodData = ~np.isnan(RsRb_exp) & ~np.isnan(RsRb_obs)
+    return 100.0*np.sum((RsRb_obs[goodData] - RsRb_exp[goodData])**2) #Sum of squares alone is very small... this was quicker than adjusting tolerance
+
+relNoise = 0.05
+nIterations = 10
+T_0_act = 50.0
+t_0_act = 30.0
+t_c_act = 10.0
+
+initialGuesses = 5.0
+bounds = [(0,500.0),(0,t_0_act)]
+
+stepHeatTemps = np.linspace(280.0,575.0,20.0)+273.15
+stepHeatDurations = np.ones_like(stepHeatTemps)*0.25/(24.0*365.0) #half an hour each, converted to years
+
+thermalHistory_act = createThermalHistory(T_0_act,t_0_act,t_c_act)
+sumF3He_act,RsRb_act = predictRatioEvolution(thermalHistory_act,stepHeatTemps,stepHeatDurations)
+
+f,axs = plt.subplots(1,2)
+
+for i in range(nIterations):
+    RsRb_obs = RsRb_act + np.random.randn(len(RsRb_act))*relNoise*RsRb_act
+
+    objFun = lambda params: L2norm(sumF3He_act,RsRb_obs,T_0_act,t_0_act,params,stepHeatTemps,stepHeatDurations)
+
+    pred = minimize(objFun,initialGuesses,method='Nelder-Mead')#,bounds = bounds)
+    tHist_pred = createThermalHistory(T_0_act,t_0_act,pred.x)
+
+
+
+    axs[0].plot(sumF3He_act,RsRb_obs,'-k',alpha = 0.2)
+    plt.sca(axs[1])
+    tHist_pred.plot(color = 'k',alpha = 0.2)
+
+
+    #Plot best fitting ratio evolution diagram
+    sumF3He_pred,RsRb_pred = predictRatioEvolution(tHist_pred,stepHeatTemps,stepHeatDurations)
+    axs[0].plot(sumF3He_pred,RsRb_pred,'-ob',alpha = 0.2)
+
+#Plot actual data
+axs[0].plot(sumF3He_act,RsRb_act,'-r',linewidth = 2)
+plt.sca(axs[1])
+thermalHistory_act.plot(color = 'r',linewidth = 2, label = 'actual')
+plt.legend()
+
