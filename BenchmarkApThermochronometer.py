@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 
 
 #Default params
-Radius = 100.0 / 1e6  # Crystal radius in m
+Radius = 64.0 / 1e6  # Crystal radius in m
 dx =1.0 / 1e6  # spacing of nodes in m
 L =  np.arange(dx / 2.0, Radius, dx)
 Vs = (4.0/3.0)*np.pi*((L+(dx/2))**3 - (L-(dx/2.0))**3)
@@ -18,9 +18,9 @@ weights = Vs/np.sum(Vs)
 nx = len(L)
 
 # Concentrations
-Conc238 = 1.0#8.0
+Conc238 = 50.0#8.0
 Conc235 = (Conc238 / 137.0)
-Conc232 = 1.0#147.0
+Conc232 = 65.0#147.0
 
 parentConcs = np.array([Conc238 * np.ones_like(L), Conc235 * np.ones_like(L), Conc232 * np.ones_like(L)])
 daughterConcs = np.zeros_like(L)
@@ -143,8 +143,12 @@ plt.legend(loc = 'best')
 timePoints = np.array([15.0, 0.0])*1e6
 thermalPoints = np.array([90.0, 25.0])+273.15
 
-stepHeatTemps = np.arange(280.0,600.0,10.0)+273.15
-stepHeatDurations = np.ones_like(stepHeatTemps)*0.5/(24.0*365.0) #half an hour each, converted to years
+#These step heating experiments from a set of experiments from Shuster
+stepHeatTemps = np.array([180.0,225,260,300,300,310,330,340,350,350,370,400,410,420,440,475,500,600,700,900])+273.15
+stepHeatDurations = np.array([1.0,0.5,0.38,0.51,0.66,0.66,0.46,0.45,0.48,0.66,0.53,0.48,0.50,0.56,0.63,0.5,0.5,0.5,0.5,0.5])/(24.0*365.0) #half an hour each, converted to years
+
+stepHeatTemps = stepHeatTemps[1:]
+stepHeatDurations = stepHeatDurations[1:]
 
 HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,parentConcs,daughterConcs,diffusivityParams=diffusivity)
 thermalHistory = tHist.thermalHistory(-timePoints,thermalPoints)
@@ -216,7 +220,7 @@ def L2norm(sumF3He_obs,RsRb_obs,T_0,t_0,t_c,stepHeatTemps,stepHeatDurations):
     return 100.0*np.sum((RsRb_obs[goodData] - RsRb_exp[goodData])**2) #Sum of squares alone is very small... this was quicker than adjusting tolerance
 
 relNoise = 0.05
-nIterations = 10
+nIterations = 3
 T_0_act = 50.0
 t_0_act = 30.0
 t_c_act = 10.0
@@ -239,8 +243,6 @@ for i in range(nIterations):
 
     pred = minimize(objFun,initialGuesses,method='Nelder-Mead')#,bounds = bounds)
     tHist_pred = createThermalHistory(T_0_act,t_0_act,pred.x)
-
-
 
     axs[0].plot(sumF3He_act,RsRb_obs,'-k',alpha = 0.2)
     plt.sca(axs[1])

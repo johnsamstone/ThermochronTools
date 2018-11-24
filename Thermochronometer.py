@@ -21,6 +21,7 @@ from matplotlib import pyplot as plt
 from scipy import optimize
 from scipy.sparse import diags
 from scipy import linalg
+from scipy import interpolate
 from matplotlib import cm
 from scipy import integrate
 
@@ -84,7 +85,46 @@ def approxRadiusFromFt(Ft,stoppingDistance, radiusGuess):
     rootfun = lambda r : Ft - calcFt(r,stoppingDistance)
 
     return optimize.newton(rootfun,radiusGuess)
-    
+
+def sphericalVolumeIntegral(quantity,radialPositions):
+    integralQuantity = 4.0 * np.pi * quantity * radialPositions ** 2
+    return integrate.trapz(integralQuantity,radialPositions)
+
+
+def CJDiffuse(C, int_tao, r, a):
+    '''
+    Fourier transform based solution to diffusion in a sphere from carlslaw and Jaeger
+    NOTE: Use a regular grid of points, and do not cumulatively integrate to avoid instabilities.
+    That is - integrate tao for the history you wish to simulate, rather than stepping through a series
+    of tao values. For example, in degassing experiments don't treat each 'step' individually, but
+    solve for remaining gas considering initial conditions and ALL previous step heating experiments
+    Also NOTE: Solution divides by r, so a point at the center of crystal (r=0) will cause problems
+    :param C:
+    :param int_tao: The integral of the diffusivity over time
+    :param r:
+    :param a:
+    :return:
+    '''
+
+    #Do I need to sum over odd interval?
+    n = len(C)
+    if np.mod(n,2)==0:
+        n+=1
+    Ks = np.arange(1, len(C))
+
+    expTerm = lambda k: np.exp(-(k ** 2) * (np.pi ** 2) * int_tao)
+    sinTerm = lambda k: np.sin(k * np.pi * r / a)
+    integralTerm = lambda k: integrate.trapz(sinTerm(k) * r * C, r)
+
+    C_diffed = np.zeros_like(C)
+
+    for k in Ks:
+        C_diffed += expTerm(k) * sinTerm(k) * integralTerm(k)
+
+    # return C_diffed[1:-1]*2.0/(r[1:-1]*a)
+    return C_diffed * 2.0 / (r * a)
+
+
 # ==============================================================================
 #  Classes for different thermochronometers
 # ==============================================================================
@@ -449,10 +489,12 @@ class sphericalThermochronometer(Thermochronometer):
         :return: integral of the quantity over the spherical domain
         '''
 
-        # return np.sum(self._ShellVolumes*quantity)
-        integralQuantity = np.hstack((0,4.0*np.pi*quantity*self.rs**2,0))
+        #We want to ingerate from 0 -> R, but our grid doesn't span that. Extend
+        # and pad with zeros (first 0 is because concentration doesn't matter at r = 0, second is because concentration
+        # is 0 at grain boundary)
+        integralQuantity = np.hstack((0,quantity,0))
         positions = np.hstack((0,self.rs,self.radius))
-        return integrate.simps(integralQuantity,positions)
+        return sphericalVolumeIntegral(integralQuantity,positions)
 
 class SphericalHeThermochronometer(sphericalThermochronometer):
     ''' A thermochronometer where the daughter product is He produced by decay of U, Th, Sm
@@ -488,18 +530,24 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         #Creating copies of the 'doped' profile and the daughter profile
         #To forward diffuse
 
-        #If using ketcham solution for diffusion
-        conc_4 = np.copy(self._daughters)
+        #If using ketcham solution for diffusion, we have an irregular grid - interpolate to a regular grid
+        rs = np.arange(0,self.radius,self.dr) #Make the first point very small, but non-zero (to avoid divide by zero in CJ diffusion)
+        interp = interpolate.interp1d(np.hstack((-self.rs,self.rs,self.radius)),np.hstack((self._daughters,self._daughters,0)),kind = 'cubic')
+        conc_4 = interp(rs)
 
-        conc_3 = np.ones_like(conc_4)*np.mean(conc_4) + 1e-5*np.random.randn(len(conc_4))*np.mean(conc_4)
+        # conc_4 = np.copy(self._daughters)
+        # rs = self.rs
+
+        conc_3 = np.ones_like(conc_4)*np.mean(conc_4)
+        # conc_3[-1] = 0
+
         if plotProfileEvolution:
-            axs[0].plot(self.rs/self.radius,conc_3,'-k')
-            axs[1].plot(self.rs/self.radius,self._daughters,'-k')
+            axs[0].plot(rs/self.radius,conc_3,'-k')
+            axs[1].plot(rs/self.radius,conc_4,'-k')
 
-        #Create a second copy, to difference the step heated and original profile to calculate
-        #How much gas was lost
-        total3_0 = self._volumeIntegral(conc_3)
-        total4_0 = self._volumeIntegral(conc_4)
+        #Calculate how much gas started in the grains
+        total3_0 = sphericalVolumeIntegral(conc_3,rs)
+        total4_0 = sphericalVolumeIntegral(conc_4,rs)
 
         #Preallocate some space for the results of step heating
         f_4He = np.zeros(len(Temps)+1)
@@ -509,31 +557,18 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         # f_4He[0] = 1.0
         # f_3He[0] = 1.0
 
-        def CJDiffuse(C,D,delt,r,a):
+        taos = self._diffusivityFunction(Temps)*Durations/self.radius**2
 
-            Ks = np.arange(1,101)
-            tao = D*delt/(a**2)
-            expTerm = lambda k: np.exp(-(k**2)*(np.pi**2)*tao)
-            sinTerm = lambda k: np.sin(k*np.pi*r/a)
-            integralTerm = lambda k : integrate.simps(sinTerm(k)*r*C,r)
+        for i,tao in enumerate(taos):
+            conc_3_i = CJDiffuse(conc_3,np.sum(taos[:i+1]),rs,self.radius)
+            conc_4_i = CJDiffuse(conc_4,np.sum(taos[:i+1]),rs,self.radius)
 
-            C_diffed = np.zeros_like(C)
-
-            for k in Ks:
-                C_diffed+=expTerm(k)*sinTerm(k)*integralTerm(k)
-
-            return C_diffed*2.0/(r*a)
-
-        for i in range(len(Temps)):
-            T = Temps[i]
-            dt =Durations[i]
-
-            conc_3 = CJDiffuse(conc_3,self._diffusivityFunction(T),dt,self.rs,self.radius)
-            conc_4 = CJDiffuse(conc_4,self._diffusivityFunction(T),dt,self.rs,self.radius)
+            conc_3_i[0] = 0
+            conc_4_i[0] = 0
 
             #For non-mirrored profile
-            totalHe3_i = self._volumeIntegral(conc_3)
-            totalHe4_i = self._volumeIntegral(conc_4)
+            totalHe3_i = sphericalVolumeIntegral(conc_3_i,rs)
+            totalHe4_i = sphericalVolumeIntegral(conc_4_i,rs)
 
             #First step is i=1, becuase at i = 0, f = 1 (all gas remaining),
             #Calculate the remaining gas fraction normalized by the initial gas content
@@ -541,8 +576,8 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
             f_4He[i+1] = (total4_0 - totalHe4_i)/total4_0
 
             if plotProfileEvolution:
-                axs[0].plot(self.rs/self.radius,conc_3,label = str(i),color = colors[i])
-                axs[1].plot(self.rs/self.radius,conc_4,label = str(i),color = colors[i])
+                axs[0].plot(rs[1:]/self.radius,conc_3_i[1:],label = str(i),color = colors[i])
+                axs[1].plot(rs[1:]/self.radius,conc_4_i[1:],label = str(i),color = colors[i])
 
         if plotProfileEvolution:
             axs[0].set_ylabel(r'$[3^He]$',fontsize = 14)
