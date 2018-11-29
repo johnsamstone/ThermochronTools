@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 
 
 #Default params
-Radius = 64.0 / 1e6  # Crystal radius in m
+Radius = 100.0 / 1e6  # Crystal radius in m
 dx =1.0 / 1e6  # spacing of nodes in m
 L =  np.arange(dx / 2.0, Radius, dx)
 Vs = (4.0/3.0)*np.pi*((L+(dx/2))**3 - (L-(dx/2.0))**3)
@@ -184,8 +184,97 @@ axs[2].set_xlabel(r'$\sum F ^3He$',fontsize = 14)
 axs[2].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)
 
 
+
 #########################################################################################################
-#### Fifth test,Inversion using Shuster and Farley ratio evolution diagram
+#### Fifth test,Shuster and Farley ratio evolution diagram- multiple histories
+#########################################################################################################
+
+#Default params
+Radius = 65.0 / 1e6  # Crystal radius in m
+dx = 1.0 / 1e6  # spacing of nodes in m
+L =  np.arange(dx / 2.0, Radius, dx)
+
+# Concentrations
+Conc238 = 1.0#8.0
+Conc235 = (Conc238 / 137.0)
+Conc232 = 1.0#147.0
+
+parentConcs = np.array([Conc238 * np.ones_like(L), Conc235 * np.ones_like(L), Conc232 * np.ones_like(L)])
+daughterConcs = np.zeros_like(L)
+
+
+diffusivity = 'Farley'
+
+thermalHistories = []
+colors = []
+
+#Instantaneous quenching at 10 ma
+timePoints = np.array([10.0, 0.0])*1e6
+thermalPoints = np.array([5.0, 5.0])+273.15
+thermalHistories.append(tHist.thermalHistory(-timePoints,thermalPoints))
+colors.append('orangered')
+
+#Constant cooling rate
+timePoints = np.array([15.0, 0.0])*1e6
+thermalPoints = np.array([88.0, 25.0])+273.15
+thermalHistories.append(tHist.thermalHistory(-timePoints,thermalPoints))
+colors.append('green')
+
+#Holding, then quenching
+timePoints = np.array([15.0, 5.0,5.01,0.0])*1e6
+thermalPoints = np.array([64.0, 64.0, 5.0, 5.0])+273.15
+thermalHistories.append(tHist.thermalHistory(-timePoints,thermalPoints))
+colors.append('k')
+
+#Constant temp, steady state profile
+timePoints = np.array([100.0, 0.0])*1e6
+thermalPoints = np.array([63.0, 63.0])+273.15
+thermalHistories.append(tHist.thermalHistory(-timePoints,thermalPoints))
+colors.append('lavender')
+
+#These step heating experiments from a set of experiments from Shuster
+# stepHeatTemps = np.array([180.0,225,260,300,300,310,330,340,350,350,370,400,410,420,440,475,500,600,700,900])+273.15
+# stepHeatDurations = np.array([1.0,0.5,0.38,0.51,0.66,0.66,0.46,0.45,0.48,0.66,0.53,0.48,0.50,0.56,0.63,0.5,0.5,0.5,0.5,0.5])/(24.0*365.0) #half an hour each, converted to years
+
+stepHeatTemps = np.linspace(150.0,900.0,100)+273.15
+stepHeatDurations = np.ones_like(stepHeatTemps)*0.3 / (24.0*365)
+
+f,axs = plt.subplots(3,1)
+for i,thermalHistory in enumerate(thermalHistories):
+
+
+    HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,np.copy(parentConcs),np.copy(daughterConcs),diffusivityParams=diffusivity)
+
+    #Integrate this thermal history with a fixed timestemp
+    HeModel.integrateThermalHistory(thermalHistory.t[0], thermalHistory.t[-1],1e5, thermalHistory.getTemp)
+
+    axs[0].plot(-thermalHistory.t/1e6,thermalHistory.T - 273.15,'-',color = colors[i])
+    axs[0].set_ylim(100.0,0)
+    axs[0].set_xlim(15.0,0)
+    axs[0].set_ylabel('Temperature C')
+    axs[0].set_xlabel('Time (Ma)')
+
+    plt.sca(axs[1])
+    thisAge = HeModel.calcAge(applyFt=True)
+    HeModel.plotDaughterProfile(normalize=False,linewidth=2, color=colors[i],label = 'He age = %.1f Ma'%thisAge)
+    axs[1].set_ylim(0,1)
+    axs[1].set_xlim(0,1)
+    axs[1].grid()
+    axs[1].set_ylabel(r'$[^4He]$',fontsize = 13)
+    axs[1].set_xlabel('Normalized Radius')
+    axs[1].legend(loc = 'best')
+
+    f_3He,f_4He,F3He,RsRb = HeModel.integrate43experiment(stepHeatTemps,stepHeatDurations,plotProfileEvolution=False)
+
+    axs[2].plot(np.cumsum(F3He),RsRb,'-',color = colors[i])
+    axs[2].set_xlabel(r'$\sum F ^3He$',fontsize = 14)
+    axs[2].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)
+    axs[2].set_ylim(0,1.6)
+
+
+
+#########################################################################################################
+#### Sixth test,Inversion using Shuster and Farley ratio evolution diagram
 #########################################################################################################
 
 from scipy.optimize import minimize

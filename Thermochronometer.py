@@ -17,6 +17,7 @@ __email__ = "sjohnstone@usgs.gov"
 __status__ = "Production"
 
 import numpy as np
+import pandas as pd
 from matplotlib import pyplot as plt
 from scipy import optimize
 from scipy.sparse import diags
@@ -108,9 +109,9 @@ def CJDiffuse(C, int_tao, r, a):
 
     #Do I need to sum over odd interval?
     n = len(C)
-    if np.mod(n,2)==0:
-        n+=1
-    Ks = np.arange(1, len(C))
+    # if np.mod(n,2)==0:
+    #     n+=1
+    Ks = np.arange(1, n)
 
     expTerm = lambda k: np.exp(-(k ** 2) * (np.pi ** 2) * int_tao)
     sinTerm = lambda k: np.sin(k * np.pi * r / a)
@@ -531,7 +532,7 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         #To forward diffuse
 
         #If using ketcham solution for diffusion, we have an irregular grid - interpolate to a regular grid
-        rs = np.arange(0,self.radius,self.dr) #Make the first point very small, but non-zero (to avoid divide by zero in CJ diffusion)
+        rs = np.arange(self.dr/1e6,self.radius,self.dr/10.0) #Make the first point very small, but non-zero (to avoid divide by zero in CJ diffusion)
         interp = interpolate.interp1d(np.hstack((-self.rs,self.rs,self.radius)),np.hstack((self._daughters,self._daughters,0)),kind = 'cubic')
         conc_4 = interp(rs)
 
@@ -539,7 +540,7 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         # rs = self.rs
 
         conc_3 = np.ones_like(conc_4)*np.mean(conc_4)
-        # conc_3[-1] = 0
+        conc_3[-1] = 0
 
         if plotProfileEvolution:
             axs[0].plot(rs/self.radius,conc_3,'-k')
@@ -585,15 +586,14 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
             axs[1].set_ylabel(r'$[4^He]$', fontsize=14)
             axs[1].set_xlabel(r'$r/a$', fontsize=14)
 
-        #Calculate the gas release fraction - Note: Shuster & Farley have this written as f_(i-1) - f(i), which seems like the wrong sign to me...
+        #Calculate the gas release fraction - Note: Shuster & Farley, 2004 have this written as f_(i-1) - f(i), which seems like the wrong sign to me...
         F3He = f_3He[1:] - f_3He[:-1]
 
         F4He = f_4He[1:] - f_4He[:-1]
 
-        RBulk = total4_0/total3_0
-
-        RstepRbulk = (F4He/F3He)/RBulk
-
+        # This is written as Rstep in Shuster & Farley 2004, but is already normalized by the bulk ratio through f.
+        #Where we to divide through be the bulk concentration ratio we would re-introduce dependence on concentration
+        RstepRbulk = F4He/F3He
         return f_3He,f_4He,F3He,RstepRbulk
 
 
@@ -633,7 +633,10 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
 
         self.radius = radius
         self.dr = dr
-        self.rs = np.arange(dr / 2.0, radius, dr)
+        self.rs = np.arange(dr / 2.0, radius, dr) #Hmmm.... in some cases this can generate a radial coordinate AT the edge - which shouldn't exist given Ketcham's model setup...
+        if self.rs[-1] == radius:
+            print('Error: crystal grid coordinates do not abide by requirements of numerical model')
+
         self._n = len(self.rs)
         self._assignDiffusivityFunction(diffusivityParams)
 
@@ -737,3 +740,105 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
 
         return 1 - (3.0 * self.stoppingDistance) / (4.0 * self.radius) + self.stoppingDistance ** 3 / (
         16.0 * self.radius ** 3)
+
+# ==============================================================================
+#  Classes for different thermochronology experiments
+# ==============================================================================
+
+class HeDegassingExperiment:
+    '''
+    This is a work in progress to experiment with inverting Apatite 4/3 data for thermal histories.
+    '''
+
+    def __init__(self,filepath):
+        '''
+        NOTES:
+        :param filepath:
+        '''
+
+        self.filepath = filepath
+
+        #The expected structure of the excel files (from Shuster) have two headers, get informatino from the top first
+        df = pd.read_excel(filepath,nrows = 2)
+
+        self.R = float(df['grain_radius (cm)'][0] / 100.0) #cm -> m
+        self.U = float(df['bulk[U] (ppm) '][0])
+        self.Th = float(df['bulk[Th] (ppm)'][0])
+        self.Age = float(df['age'][0])
+        self.dAge = float(df['delage'][0])
+
+        #Close the dataframe and re-open it skipping rows
+        df = None
+        df = pd.read_excel(filepath,skiprows=2)
+
+        self.stepTemps = np.array(df['T(deg C) '])
+        self.stepDurations = np.array(df['t(hr) '])/(24.0*365) # hrs -> years
+
+        self.He_3 = np.array(df['He-3(10^6 atoms) '])
+        self.dHe_3 =  np.array(df['dHe-3(10^6 atoms) '])
+
+        self.HeRatio = np.array(df['4/3_ratio '])
+        self.dHeRatio = np.array(df['d4/3_ratio '])
+
+        self._goodData = (self.He_3 > 0) & (self.dHe_3 > 0) & (self.HeRatio > 0) & (self.dHeRatio > 0)
+
+        #Hmmmm..... how to deal with bad experiments... tricky part about nan or zero is propogation of results
+        self.HeRatio[~self._goodData] = 0
+        self.dHeRatio[~self._goodData] = 0
+        self.He_3[~self._goodData] = 0
+        self.dHe_3[~self._goodData] = 0
+
+        self.He_4 = self.He_3*self.HeRatio
+        self.dHe_4 = self.He_4*np.sqrt((self.dHeRatio/self.HeRatio)**2 + (self.dHe_3/self.He_3)**2)
+        self.dHe_4[~self._goodData] = 0
+
+        self.F_3He, self.dF_3He, self.sum_F_3He, self.dsum_F_3He = self._calcf_F(self.He_3,self.dHe_3)
+
+        self.RsRb = self.HeRatio/(np.sum(self.He_4)/np.sum(self.He_3))
+        self.RsRb[~self._goodData] = 0
+
+        dSum4He = np.sqrt(np.sum(self.dHe_4**2))
+        dSum3He = np.sqrt(np.sum(self.dHe_3**2))
+        Rb = np.sum(self.He_4)/np.sum(self.He_3)
+        dRb = Rb*np.sqrt((dSum4He/np.sum(self.He_4))**2 + (dSum3He/np.sum(self.He_3))**2)
+        self.dRsRb = self.RsRb*np.sqrt((self.dHeRatio/self.HeRatio)**2 + (dRb/Rb)**2)
+        self.dRsRb[~self._goodData] = 0
+
+
+    def _calcf_F(self,N,dN):
+        '''
+        :param N:
+        :return: f
+        '''
+        N_0 = np.sum(N)
+        dN_0 = np.sqrt(np.sum(dN**2))
+
+        F = N/N_0
+        dF = F*np.sqrt((dN_0/N_0)**2 + (dN/N)**2)
+
+        F[~self._goodData] = 0
+        dF[~self._goodData] = 0
+
+        sum_F = np.cumsum(F)
+        dSum_F = np.sqrt(np.cumsum(dF**2))
+
+        sum_F[~self._goodData] = 0
+        dSum_F[~self._goodData] = 0
+
+        return F,dF,sum_F,dSum_F
+
+    def plotRatioEvolution(self,**kwargs):
+        '''
+        :param kwargs: passed to pyplot.errorbar
+        :return:
+        '''
+        plt.errorbar(self.sum_F_3He, self.RsRb, yerr=self.dRsRb, xerr=self.dsum_F_3He, **kwargs)
+
+    def L2Norm_ratioEvolution(self,sumF3He_exp,RsRb):
+        goodData = ~np.isnan(RsRb)  & self._goodData
+        return np.sum((RsRb[goodData] - self.RsRb[goodData])**2)
+
+    def ln_likelihood(self,sumF3He_exp,RsRb):
+        goodData = ~np.isnan(RsRb) & self._goodData
+        ps = (1.0/np.sqrt(2.0*np.pi*self.dRsRb**2))*np.exp(-(RsRb - self.dRsRb)**2/(2.0*self.dRsRb**2))
+        return np.sum(np.log(ps[goodData]))
