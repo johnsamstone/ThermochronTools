@@ -25,6 +25,8 @@ from scipy import linalg
 from scipy import interpolate
 from matplotlib import cm
 from scipy import integrate
+from scipy import stats
+from scipy import special
 
 
 # ==============================================================================
@@ -125,6 +127,51 @@ def CJDiffuse(C, int_tao, r, a):
     # return C_diffed[1:-1]*2.0/(r[1:-1]*a)
     return C_diffed * 2.0 / (r * a)
 
+def CJDiffuse_uniform(meanC,int_tao,r,a):
+    '''
+
+    THIS FUNCTINO IN PROGRESS, NOT YET WORKING
+
+    Carlslaw and Jaeger solution for diffusion in a sphere of uniform concentration.
+
+    In chapter 9.3 solution is listed as 'subtraction of 4 - 9 ' from V
+    :param meanC: single value, the concentration
+    :param int_tao: the integrated diffusivity, effectively k*t/a**2
+    :param r: array of coordinates along the radius
+    :param a:single value, radius of sphere
+    :return: C(r,int_tao), the concentration after diffusion
+    '''
+
+    # kt = int_tao*a**2
+    # ierfc = lambda z: (1.0/np.pi)*np.exp(-z**2) - z*special.erfc(z)
+
+    #Solution to equation 4/5, zero concentration, surface temperature of V is constant
+    ns = np.arange(1,1e3 + 1)
+
+    eqn_5 = 0
+    for n in ns:
+        # eqn_5 = special.erfc(((2.0*n+1)*a-r)/(2.0*np.sqrt(kt))) - special.erfc(((2.0*n+1)*a+r)/(2.0*np.sqrt(kt)))
+        eqn_5 += ((-1) ** n / n) * np.sin(n * np.pi * r / a) * np.exp(-(n ** 2) * (np.pi ** 2) * int_tao)
+
+    # eqn_5 *= (a*meanC/r)
+    eqn_5 = meanC + (2.0 * a * meanC / (np.pi * r)) * eqn_5
+
+    #Solution to equation 6/7, temperature at center of sphere
+    eqn_7 = (-1)**n*np.exp(-(n ** 2) * (np.pi ** 2) * int_tao)
+    eqn_7 = meanC + 2.0*meanC*np.sum(eqn_7)
+
+    #Solution to equation 8/9, average temperature
+    eqn_9 = (1.0/n**2)*np.exp(-(n ** 2) * (np.pi ** 2) * int_tao)
+    eqn_9 = meanC - (6.0*meanC/np.pi**2)*np.sum(eqn_9)
+
+
+    # eqn_7 = np.exp(-(2.0*n+1)**2*a**2/(4.0*kt))
+    # eqn_7 = np.sum(eqn_7)*a*meanC/np.sqrt(np.pi*kt)
+
+    # eqn_9 = ierfc((n*a)/np.sqrt(kt))
+    # eqn_9 = (6.0*meanC*np.sqrt(kt)/(a*np.sqrt(np.pi))) - (3.0*meanC*kt/a**2) + (12.0*meanC*np.sqrt(kt)/a)*np.sum(eqn_9)
+
+    return meanC - (eqn_5 + eqn_7 + eqn_9)
 
 # ==============================================================================
 #  Classes for different thermochronometers
@@ -515,13 +562,19 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         ret[(self.radius - self.stoppingDistance) > self.rs] = 1.0
         return ret
 
-    def integrate43experiment(self,Temps,Durations,plotProfileEvolution = False):
+    def integrate43experiment(self,Temps = None,Durations = None,plotProfileEvolution = False):
         '''
 
         :param Temps: The temperatures of each step
         :param Durations: The durations of each step
         :return: He_released, Rstep/Rbulk
         '''
+
+        nPtsForDegassing = 500.0 #In my experience the fourier part of this solution performs best with a certiain number of pts
+
+        if (Temps is None) or (Durations is None):
+            Temps = np.linspace(130.0, 650.0, 100) + 273.15
+            Durations = np.ones_like(Temps) * 0.1 / (24.0 * 365)
 
         if plotProfileEvolution:
             f,axs = plt.subplots(1,2)
@@ -532,15 +585,12 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         #To forward diffuse
 
         #If using ketcham solution for diffusion, we have an irregular grid - interpolate to a regular grid
-        rs = np.arange(self.dr/1e6,self.radius,self.dr/10.0) #Make the first point very small, but non-zero (to avoid divide by zero in CJ diffusion)
+        dr = self.radius/nPtsForDegassing
+        rs = np.arange(dr/1e2,self.radius,dr) #Make the first point very small, but non-zero (to avoid divide by zero in CJ diffusion)
         interp = interpolate.interp1d(np.hstack((-self.rs,self.rs,self.radius)),np.hstack((self._daughters,self._daughters,0)),kind = 'cubic')
         conc_4 = interp(rs)
 
-        # conc_4 = np.copy(self._daughters)
-        # rs = self.rs
-
         conc_3 = np.ones_like(conc_4)*np.mean(conc_4)
-        conc_3[-1] = 0
 
         if plotProfileEvolution:
             axs[0].plot(rs/self.radius,conc_3,'-k')
@@ -563,9 +613,6 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         for i,tao in enumerate(taos):
             conc_3_i = CJDiffuse(conc_3,np.sum(taos[:i+1]),rs,self.radius)
             conc_4_i = CJDiffuse(conc_4,np.sum(taos[:i+1]),rs,self.radius)
-
-            conc_3_i[0] = 0
-            conc_4_i[0] = 0
 
             #For non-mirrored profile
             totalHe3_i = sphericalVolumeIntegral(conc_3_i,rs)
@@ -781,6 +828,7 @@ class HeDegassingExperiment:
         self.dHeRatio = np.array(df['d4/3_ratio '])
 
         self._goodData = (self.He_3 > 0) & (self.dHe_3 > 0) & (self.HeRatio > 0) & (self.dHeRatio > 0)
+        self._goodIdcs = np.argwhere(self._goodData).flatten()
 
         #Hmmmm..... how to deal with bad experiments... tricky part about nan or zero is propogation of results
         self.HeRatio[~self._goodData] = 0
@@ -838,7 +886,48 @@ class HeDegassingExperiment:
         goodData = ~np.isnan(RsRb)  & self._goodData
         return np.sum((RsRb[goodData] - self.RsRb[goodData])**2)
 
-    def ln_likelihood(self,sumF3He_exp,RsRb):
+    def ln_likelihood_RsRb(self,RsRb):
         goodData = ~np.isnan(RsRb) & self._goodData
         ps = (1.0/np.sqrt(2.0*np.pi*self.dRsRb**2))*np.exp(-(RsRb - self.dRsRb)**2/(2.0*self.dRsRb**2))
         return np.sum(np.log(ps[goodData]))
+
+    def ln_likelihood_Experiment(self,HeModel):
+        '''
+
+        :param HeModel:
+        :return:
+        '''
+
+        #Fitting a more finely discritized step heating experiment
+        stepHeatTemps = np.linspace(130.0, 650.0, 100) + 273.15
+        stepHeatDurations = np.ones_like(stepHeatTemps) * 0.1 / (24.0 * 365)
+        F3He, RsRb = HeModel.integrate43experiment(self.stepTemps + 273.15, self.stepDurations,
+                                                   plotProfileEvolution=False)[2:]
+
+        #Fitting the same step heating experiment
+        # F3He, RsRb = HeModel.integrate43experiment(self.stepTemps+273.15, self.stepDurations,plotProfileEvolution=False)[2:]
+
+        sumF3He = np.cumsum(F3He)
+
+        #When fitting the sample step heating experiment
+        # goodData = ~np.isnan(F3He) & ~np.isnan(RsRb)
+        # goodIdcs = np.argwhere(self._goodData & goodData)
+
+        #When fitting a more finely discretized step heating experiment
+        goodIdcs = np.argwhere(self._goodData)
+
+        model = np.vstack((sumF3He,RsRb)).T
+        lnP = 0.0
+        for idx in self._goodIdcs:
+
+            ##Just fitting ratios...
+            # lnP += np.log(np.max(stats.norm.pdf(RsRb,self.RsRb[idx],self.dRsRb[idx])))
+
+            #Fitting a more finely discritized curve - assigning maximum likelihood for each measurement
+            lnP += np.nanmax(stats.multivariate_normal.logpdf(model,[self.sum_F_3He[idx],self.RsRb[idx]],
+                                                          [[self.dsum_F_3He[idx], 0.0],[0.0,self.dRsRb[idx]]]))
+
+
+            # lnP += stats.multivariate_normal.logpdf([sumF3He[idx],RsRb[idx]],[self.sum_F_3He[idx],self.RsRb[idx]],[[self.dsum_F_3He[idx], 0.0],[0.0,self.dRsRb[idx]]])
+
+        return lnP
