@@ -136,6 +136,56 @@ plt.xlabel('Normalized Radius')
 plt.legend(loc = 'best')
 
 #########################################################################################################
+####  Test arrhenius relationship
+#########################################################################################################
+#Default params
+Radius = 100.0 / 1e6  # Crystal radius in m
+dx = 1.0 / 1e6  # spacing of nodes in m
+L =  np.arange(dx / 2.0, Radius, dx)
+
+# Concentrations
+Conc238 = 50.0#8.0
+Conc235 = (Conc238 / 137.0)
+Conc232 = 65.0#147.0
+
+parentConcs = np.array([Conc238 * np.ones_like(L), Conc235 * np.ones_like(L), Conc232 * np.ones_like(L)])
+daughterConcs = np.zeros_like(L)
+
+diffusivity = 'Farley'
+
+#Whats the greatest number of degrees allowable in a given time step
+maxDegreeJump = 2
+dt = 5e4
+
+timePoints = np.array([15.0, 0.0])*1e6
+thermalPoints = np.array([90.0, 25.0])+273.15
+
+#These step heating experiments from a set of experiments from Shuster
+stepHeatTemps = np.array([180.0,225,260,300,300,310,330,340,350,350,370,400,410,420,440,475,500,600,700,900])+273.15
+stepHeatDurations = np.array([1.0,0.5,0.38,0.51,0.66,0.66,0.46,0.45,0.48,0.66,0.53,0.48,0.50,0.56,0.63,0.5,0.5,0.5,0.5,0.5])/(24.0*365.0) #half an hour each, converted to years
+
+stepHeatTemps = stepHeatTemps[1:]
+stepHeatDurations = stepHeatDurations[1:]
+
+HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,parentConcs,daughterConcs,diffusivityParams=diffusivity)
+thermalHistory = tHist.thermalHistory(-timePoints,thermalPoints)
+
+#Integrate this thermal history with a fixed timestemp
+HeModel.integrateThermalHistory(-timePoints[0], timePoints[-1],dt, thermalHistory.getTemp)
+
+f_3He,f_4He,F3He,RsRb = HeModel.integrate43experiment(stepHeatTemps,stepHeatDurations,plotProfileEvolution=False)
+
+
+goodData = (np.cumsum(F3He) < 1.0)
+tchron.plotArrhenius(Radius*100,F3He[goodData],stepHeatTemps[goodData],stepHeatDurations[goodData]*(60.0 * 60.0 * 24.0 * 365.0),marker = 'o',color = 'k')
+
+D_exp = np.array([HeModel._diffusivityFunction(T) for T in stepHeatTemps])
+D_exp*= 1e4 #m^2 -> cm^2
+D_exp/= (60.0 * 60.0 * 24.0 * 365.0) #1/yr -> 1/s
+
+plt.plot(1e4/stepHeatTemps,np.log(D_exp/(Radius*100)**2),'-g')
+
+#########################################################################################################
 #### Fourth test,Shuster and Farley ratio evolution diagram
 #########################################################################################################
 
@@ -343,8 +393,8 @@ axs[2].grid()
 #########################################################################################################
 
 #Default params
-Radius = 65.0 / 1e6  # Crystal radius in m
-dx = 1.0 / 1e6  # spacing of nodes in m
+Radius = 50.0 / 1e6  # Crystal radius in m
+dx = 0.5 / 1e6  # spacing of nodes in m
 L =  np.arange(dx / 2.0, Radius, dx)
 
 # Concentrations
@@ -360,7 +410,7 @@ colors = ['orangered','dodgerblue']
 
 #Some cooling history
 timePoints = np.array([30.0,20.0, 0.0])*1e6
-thermalPoints = np.array([200.0,0.0, 0.0])+273.15
+thermalPoints = np.array([10.0,10.0, 10.0])+273.15
 thermalHistory = tHist.thermalHistory(-timePoints,thermalPoints)
 color = 'r'
 
@@ -368,10 +418,11 @@ color = 'r'
 # stepHeatTemps = np.array([180.0,225,260,300,300,310,330,340,350,350,370,400,410,420,440,475,500,600,700,900])+273.15
 # stepHeatDurations = np.array([1.0,0.5,0.38,0.51,0.66,0.66,0.46,0.45,0.48,0.66,0.53,0.48,0.50,0.56,0.63,0.5,0.5,0.5,0.5,0.5])/(24.0*365.0) #half an hour each, converted to years
 
-stepHeatTemps = np.linspace(150.0,900.0,30)+273.15
+stepHeatTemps = np.linspace(125.0,900.0,200)+273.15
 stepHeatDurations = np.ones_like(stepHeatTemps)*0.3 / (24.0*365)
 
-f,axs = plt.subplots(3,1)
+
+f,axs = plt.subplots(1,4)
 F3Hes = []
 
 for i, diffusivity in enumerate(diffusivities):
@@ -383,30 +434,33 @@ for i, diffusivity in enumerate(diffusivities):
     #Integrate this thermal history with a fixed timestemp
     HeModel.integrateThermalHistory(thermalHistory.t[0], thermalHistory.t[-1],1e5, thermalHistory.getTemp)
 
-    axs[0].plot(-thermalHistory.t/1e6,thermalHistory.T - 273.15,'-',color = color)
+    axs[0].plot(-thermalHistory.t/1e6,thermalHistory.T - 273.15,'-',color = colors[i])
     axs[0].set_ylim(100.0,0)
     axs[0].set_xlim(15.0,0)
     axs[0].set_ylabel('Temperature C')
     axs[0].set_xlabel('Time (Ma)')
 
+    plt.sca(axs[1])
+    HeModel.plotDaughterProfile(normalize = True,color = colors[i])
 
-    f_3He,f_4He,F3He,RsRb = HeModel.integrate43experiment(stepHeatTemps,stepHeatDurations,plotProfileEvolution=False)
+    plt.figure()
+    f_3He,f_4He,F3He,RsRb = HeModel.integrate43experiment(stepHeatTemps,stepHeatDurations,plotProfileEvolution=True)
 
-    axs[1].plot(np.cumsum(F3He),RsRb,'-x',color = color)
-    axs[1].set_xlabel(r'$\sum F ^3He$',fontsize = 14)
-    axs[1].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)
-    axs[1].set_ylim(0,1.6)
-    axs[1].grid()
+    axs[2].plot(np.cumsum(F3He),RsRb,'-x',color = colors[i])
+    axs[2].set_xlabel(r'$\sum F ^3He$',fontsize = 14)
+    axs[2].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)
+    axs[2].set_ylim(0,1.6)
+    axs[2].grid()
 
     F3Hes.append(F3He)
 
 for i in range(1,len(F3Hes)):
-    axs[2].plot(np.cumsum(F3Hes[0]),np.cumsum(F3Hes[i]),'o',color = colors[i],label = diffusivities[i])
+    axs[3].plot(np.cumsum(F3Hes[0]),np.cumsum(F3Hes[i]),'o',color = colors[i],label = diffusivities[i])
 
-axs[2].legend()
-axs[2].set_xlabel('Gas released, {}'.format(diffusivities[i]))
-axs[2].set_ylabel('Gas released')
-axs[2].plot([0,1],[0,1],'--k')
+axs[3].legend()
+axs[3].set_xlabel('Gas released, {}'.format(diffusivities[i]))
+axs[3].set_ylabel('Gas released')
+axs[3].plot([0,1],[0,1],'--k')
 
 
 
