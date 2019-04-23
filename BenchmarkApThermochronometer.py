@@ -285,8 +285,8 @@ colors.append('lavender')
 stepHeatTemps = np.array([180.0,225,260,300,300,310,330,340,350,350,370,400,410,420,440,475,500,600,700,900])+273.15
 stepHeatDurations = np.array([1.0,0.5,0.38,0.51,0.66,0.66,0.46,0.45,0.48,0.66,0.53,0.48,0.50,0.56,0.63,0.5,0.5,0.5,0.5,0.5])/(24.0*365.0) #half an hour each, converted to years
 
-# stepHeatTemps = np.linspace(150.0,900.0,30)+273.15
-# stepHeatDurations = np.ones_like(stepHeatTemps)*0.3 / (24.0*365)
+stepHeatTemps = np.linspace(150.0,900.0,30)+273.15
+stepHeatDurations = np.ones_like(stepHeatTemps)*0.3 / (24.0*365)
 
 f,axs = plt.subplots(3,1)
 for i,thermalHistory in enumerate(thermalHistories):
@@ -305,7 +305,7 @@ for i,thermalHistory in enumerate(thermalHistories):
 
     plt.sca(axs[1])
     thisAge = HeModel.calcAge(applyFt=True)
-    HeModel.plotDaughterProfile(normalize=False,linewidth=2, color=colors[i],label = 'He age = %.1f Ma'%thisAge)
+    HeModel.plotDaughterProfile(normalize=True,linewidth=2, color=colors[i],label = 'He age = %.1f Ma'%thisAge)
     axs[1].set_ylim(0,1)
     axs[1].set_xlim(0,1)
     axs[1].grid()
@@ -461,8 +461,6 @@ axs[3].legend()
 axs[3].set_xlabel('Gas released, {}'.format(diffusivities[i]))
 axs[3].set_ylabel('Gas released')
 axs[3].plot([0,1],[0,1],'--k')
-
-
 
 #########################################################################################################
 #### Eighth test,Inversion using Shuster and Farley ratio evolution diagram

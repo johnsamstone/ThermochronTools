@@ -657,7 +657,7 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         ret[(self.radius - self.stoppingDistance) > self.rs] = 1.0
         return ret
 
-    def integrate43experiment(self,Temps = None,Durations = None,plotProfileEvolution = False):
+    def integrate43experiment(self,Temps = None,Durations = None,taos = None,plotProfileEvolution = False):
         '''
 
         :param Temps: The temperatures of each step
@@ -695,15 +695,17 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         total3_0 = sphericalVolumeIntegral(conc_3,rs)
         total4_0 = sphericalVolumeIntegral(conc_4,rs)
 
+        #If the diffusion parameters for each step where not specified, calculate them
+        if taos is None:
+            taos = self._diffusivityFunction(Temps) * Durations / self.radius ** 2
+
         #Preallocate some space for the results of step heating
-        f_4He = np.zeros(len(Temps)+1)
-        f_3He = np.zeros(len(Temps)+1)
+        f_4He = np.zeros(len(taos)+1)
+        f_3He = np.zeros(len(taos)+1)
 
         #f_0 = 0 (to start, all the gas is remaining) ... but Shuster seems to write in another way... that f_0 = 1? perhaps he means F_0 = 1?
         # f_4He[0] = 1.0
         # f_3He[0] = 1.0
-
-        taos = self._diffusivityFunction(Temps)*Durations/self.radius**2
 
         for i,tao in enumerate(taos):
             conc_3_i = CJDiffuse(conc_3,np.sum(taos[:i+1]),rs,self.radius)
@@ -897,7 +899,7 @@ class HeDegassingExperiment:
     This is a work in progress to experiment with inverting Apatite 4/3 data for thermal histories.
     '''
 
-    def __init__(self,filepath,fitRange = [0,1]):
+    def __init__(self,filepath,fitRange = [0,1],name = 'No name'):
         '''
         NOTES:
         :param filepath:
@@ -906,6 +908,7 @@ class HeDegassingExperiment:
         '''
         self.filepath = filepath
         self.fitRange = fitRange
+        self.name = name
 
         #The expected structure of the excel files (from Shuster) have two headers, get informatino from the top first
         df = pd.read_excel(filepath,nrows = 2)
@@ -955,6 +958,9 @@ class HeDegassingExperiment:
         dRb = Rb*np.sqrt((dSum4He/np.sum(self.He_4))**2 + (dSum3He/np.sum(self.He_3))**2)
         self.dRsRb = self.RsRb*np.sqrt((self.dHeRatio/self.HeRatio)**2 + (dRb/Rb)**2)
         self.dRsRb[~self._goodData] = 0
+        
+        #Calculate the values of Tao estimated from this experiment - this is used for comparring this experiment to models
+        self._Taos = self.calcTaosFromGasRelease()
 
 
     def _calcf_F(self,N,dN):
@@ -984,7 +990,7 @@ class HeDegassingExperiment:
         :param kwargs: passed to pyplot.errorbar
         :return:
         '''
-        plt.errorbar(self.sum_F_3He, self.RsRb, yerr=self.dRsRb, xerr=self.dsum_F_3He, **kwargs)
+        plt.errorbar(self.sum_F_3He, self.RsRb, yerr=self.dRsRb, xerr=self.dsum_F_3He,label = self.name, **kwargs)
 
     def calcArrhenius(self):
         '''
@@ -1003,61 +1009,31 @@ class HeDegassingExperiment:
         ps = (1.0/np.sqrt(2.0*np.pi*self.dRsRb**2))*np.exp(-(RsRb - self.dRsRb)**2/(2.0*self.dRsRb**2))
         return np.sum(np.log(ps[goodData]))
 
+    def calcTaosFromGasRelease(self):
+        '''
+        Calculate the integrated normalized diffusivity determined from the gas release fractions based on the equations
+        of  C&J. This will be used when comparing model to fit data, as it ensures that the x-axis are matched.
+        :return: tao - an array of D*dt/a^2 for each step in the experiment
+        '''
+        
+        D = self.calcArrhenius()[0]
+        tao = D*self.stepDurations/self.R**2
+        return tao
+
     def ln_likelihood_Experiment(self,HeModel):
         '''
 
         :param HeModel:
         :return:
         '''
-
-        #Fitting a more finely discritized step heating experiment - a better way to do this would be
-        #To evenly space this in degassing space.... consult C&J solution to think about how to do this
-        stepHeatTemps = np.linspace(130.0, 650.0, 100) + 273.15
-        stepHeatDurations = np.ones_like(stepHeatTemps) * 0.25 / (24.0 * 365)
-        F3He, RsRb = HeModel.integrate43experiment(self.stepTemps + 273.15, self.stepDurations,
-                                                   plotProfileEvolution=False)[2:]
-
-        #Fitting the same step heating experiment
-        # F3He, RsRb = HeModel.integrate43experiment(self.stepTemps+273.15, self.stepDurations,plotProfileEvolution=False)[2:]
+        
+        #To ensure matching gas release to experiment - use the tao values determined for this experiment in simulating the degassing        
+        F3He, RsRb = HeModel.integrate43experiment(self.stepTemps + 273.15, self.stepDurations,taos= self._Taos,plotProfileEvolution=False)[2:]
 
         sumF3He = np.cumsum(F3He)
-        goodSteps = np.argwhere(sumF3He==1)[0][0]
-        sumF3He = sumF3He[:goodSteps+1]
-        RsRb = RsRb[:goodSteps+1]
-
-        #When fitting the sample step heating experiment
-        # goodData = ~np.isnan(F3He) & ~np.isnan(RsRb)
-        # goodIdcs = np.argwhere(self._goodData & goodData)
 
         #When fitting a more finely discretized step heating experiment
         goodIdcs = np.argwhere(self._goodData)
 
-        model = np.vstack((sumF3He,RsRb)).T
-        lnP = 0.0
-
-        interpFun = interpolate.interp1d(sumF3He,RsRb,kind = 'cubic')
-        RsRb_interp = interpFun(self.sum_F_3He[self.fitIndices])
-
-
-        # for idx in self._goodIdcs:
-        #
-        #     ##Just fitting ratios given matched model and lab step heating... I don't like this because sumF3He is dependent on diffusivity...
-        #     ## so you may not align x-axis values well
-        #     # lnP += np.log(np.max(stats.norm.pdf(RsRb,self.RsRb[idx],self.dRsRb[idx])))
-        #
-        #     ### fitting x and y axis given match model and lab experiments... but is fitting x axis appropriate?
-        #     # lnP += stats.multivariate_normal.logpdf([sumF3He[idx],RsRb[idx]],[self.sum_F_3He[idx],self.RsRb[idx]],[[self.dsum_F_3He[idx], 0.0],[0.0,self.dRsRb[idx]]])
-        #
-        #
-        #     #Fitting a more finely discritized curve - assigning maximum likelihood for each measurement
-        #     #Is it appropriate to fit x-axis when that is highly dependent on the diffusivity, not the shape of the concentration
-        #     #profile? Depends on what we are fitting... but mostly I'm imagining I'll reconstruct thermal histories...
-        #     # lnP += np.nanmax(stats.multivariate_normal.logpdf(model,[self.sum_F_3He[idx],self.RsRb[idx]],
-        #     #                                               [[self.dsum_F_3He[idx], 0.0],[0.0,self.dRsRb[idx]]]))
-        #     #
-
-
-        # return lnP
-
-        return np.sum(stats.norm.logpdf(RsRb_interp,self.RsRb[self.fitIndices],self.dRsRb[self.fitIndices]))
+        return np.sum(stats.norm.logpdf(RsRb[self.fitIndices],self.RsRb[self.fitIndices],self.dRsRb[self.fitIndices]))
 
