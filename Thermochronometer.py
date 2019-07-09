@@ -57,6 +57,9 @@ def kth_diag_indices(a, k):
     rowidx, colidx = np.diag_indices_from(a)
     colidx = colidx.copy()  # rowidx and colidx share the same buffer
 
+    if k == 0:
+        print('Warning! Nothing will be returned, use np.diag_indices for k  = 0')
+
     if k > 0:
         colidx += k
     else:
