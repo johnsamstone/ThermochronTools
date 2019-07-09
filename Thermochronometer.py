@@ -25,13 +25,15 @@ from scipy import linalg
 from scipy import interpolate
 from matplotlib import cm
 from scipy import integrate
+from scipy import stats
+from scipy import special
 
 
 # ==============================================================================
 # Constants used throughout
 # ==============================================================================
-R = 8.0  # Universal gas constant
-Av = 6.022  # Avogadros number
+R_CONST = 8.3144598  # Universal gas constant
+AV_CONST = 6.022  # Avogadros number
 
 
 # ==============================================================================
@@ -127,6 +129,146 @@ def CJDiffuse(C, int_tao, r, a):
 
     # return C_diffed[1:-1]*2.0/(r[1:-1]*a)
     return C_diffed * 2.0 / (r * a)
+
+def CJDiffuse_uniform(meanC,int_tao,r,a):
+    '''
+
+    THIS FUNCTINO IN PROGRESS, NOT YET WORKING
+
+    Carlslaw and Jaeger solution for diffusion in a sphere of uniform concentration.
+
+    In chapter 9.3 solution is listed as 'subtraction of 4 - 9 ' from V
+    :param meanC: single value, the concentration
+    :param int_tao: the integrated diffusivity, effectively k*t/a**2
+    :param r: array of coordinates along the radius
+    :param a:single value, radius of sphere
+    :return: C(r,int_tao), the concentration after diffusion
+    '''
+
+    # kt = int_tao*a**2
+    # ierfc = lambda z: (1.0/np.pi)*np.exp(-z**2) - z*special.erfc(z)
+
+    #Solution to equation 4/5, zero concentration, surface temperature of V is constant
+    ns = np.arange(1,1e3 + 1)
+
+    eqn_5 = 0
+    for n in ns:
+        # eqn_5 = special.erfc(((2.0*n+1)*a-r)/(2.0*np.sqrt(kt))) - special.erfc(((2.0*n+1)*a+r)/(2.0*np.sqrt(kt)))
+        eqn_5 += ((-1) ** n / n) * np.sin(n * np.pi * r / a) * np.exp(-(n ** 2) * (np.pi ** 2) * int_tao)
+
+    # eqn_5 *= (a*meanC/r)
+    eqn_5 = meanC + (2.0 * a * meanC / (np.pi * r)) * eqn_5
+
+    #Solution to equation 6/7, temperature at center of sphere
+    eqn_7 = (-1)**n*np.exp(-(n ** 2) * (np.pi ** 2) * int_tao)
+    eqn_7 = meanC + 2.0*meanC*np.sum(eqn_7)
+
+    #Solution to equation 8/9, average temperature
+    eqn_9 = (1.0/n**2)*np.exp(-(n ** 2) * (np.pi ** 2) * int_tao)
+    eqn_9 = meanC - (6.0*meanC/np.pi**2)*np.sum(eqn_9)
+
+
+    # eqn_7 = np.exp(-(2.0*n+1)**2*a**2/(4.0*kt))
+    # eqn_7 = np.sum(eqn_7)*a*meanC/np.sqrt(np.pi*kt)
+
+    # eqn_9 = ierfc((n*a)/np.sqrt(kt))
+    # eqn_9 = (6.0*meanC*np.sqrt(kt)/(a*np.sqrt(np.pi))) - (3.0*meanC*kt/a**2) + (12.0*meanC*np.sqrt(kt)/a)*np.sum(eqn_9)
+
+    return meanC - (eqn_5 + eqn_7 + eqn_9)
+
+def calcD_forArrhenius(a,sumF,dt):
+    '''
+    Calculates the Diffusivity for a degassing experiment based on equations
+    for diffusion in a sphere of Fechtig and Kalbitzer, 1966
+
+    Worth noting that
+    :param a: Radius of grain (diffusion domain...)
+    :param sumF:  Cumulative gas fraction released
+    :param dt: duration of each step
+    :return: D_i+1, the diffusivity
+    '''
+
+    #The first experiment is assumed to have a square profile, which requires its own equation (Eqns. 4a-4c)
+    if sumF[0] <= 0.1:
+        #Equation 4a
+        D_0 = sumF[0]**2*np.pi*a**2/(36.0*dt[0])
+    elif (sumF[0] > 0.1) & (sumF[0] < 0.1):
+        # Equation 4b
+        D_0 = (R**2/np.pi**2*dt[0])*(2.0*np.pi - np.pi**2*sumF[0]/3.0 - 2.0*np.pi*np.sqrt(1.0 - np.pi*sumF[0]/3.0))
+    elif sumF[0] > 0.9:
+        # Equation 4c
+        D_0 = -(a**2/np.pi**2*dt[0])*np.log(np.pi**2*(1.0 - sumF[0])/6.0)
+
+
+
+            #Subsequent experiments (e.g. not the first) have non-square profiles
+    # due to diffusion in the sphere during the experiment (Eqns. 5a - 5b)
+    Dip1_a = (sumF[1:] ** 2 - sumF[:-1] ** 2) * np.pi * a ** 2 / (36.0 * dt[1:])
+
+    Dip1_b = (a ** 2 / (np.pi ** 2 * dt[1:])) * (-(np.pi ** 2 / 3.0) * (sumF[1:] - sumF[:-1])
+                        - 2.0 * np.pi * (np.sqrt(1.0 - np.pi * sumF[1:] / 3.0) - np.sqrt(1.0 - np.pi * sumF[:-1] / 3.0)))
+
+    Dip1_c = (a ** 2 / (np.pi ** 2 * dt[1:])) * np.log((1.0 - sumF[:-1]) / (1.0 - sumF[1:]))
+
+    Dip1 = np.zeros_like(Dip1_a)
+    Dip1[sumF[1:] <= 0.1] = Dip1_a[sumF[1:] <= 0.1]
+    Dip1[(sumF[1:] > 0.1)] = Dip1_b[(sumF[1:] > 0.1)]
+    Dip1[sumF[1:] > 0.9] = Dip1_c[sumF[1:] > 0.9]
+
+    return np.hstack((D_0,Dip1))
+
+def plotArrhenius(a,F3He,T,dt, **kwargs):
+    '''
+
+    :param kwargs:
+    :return:
+    '''
+
+    D = calcD_forArrhenius(a,np.cumsum(F3He),dt)
+
+    invT = 1 / T
+
+    plt.plot(invT, np.log(D / a ** 2), **kwargs)
+
+    return D,invT
+
+def calcClosureTemperature(a,coolingRate,Ea,D_0,shape = 'sphere',closureTempGuess = 300.0):
+    '''
+    Calculate the closure temperature for the given cooling rate, given the constant Ea, and D_0
+    describing thermally activated volume diffusion.
+    :param a: spherical radius of grain (must match units of diffusion)
+    :param coolingRate: degrees K / (time - units in D_0)
+    :param Ea: Activation energy - J/Mol
+    :param D_0: pre-exponential constant, units of length ^2 / time
+    :param shape: determines 'A' the shape factor, options are 'sphere', 'cylinder', or 'sheet'
+    :return:
+    '''
+
+    if shape.lower() == 'sphere':
+        A = 55.0
+    elif shape.lower() == 'cylinder':
+        A = 27.0
+    elif shape.lower() == 'plane sheet':
+        A = 8.7
+
+    #The most obvious strategy is to use the equations Dodson lays out (specifically this is from Equation 23
+    # in Dodson 1973. Note that this is just the inverse (inverted) of what you'd expect from combi equtions i and ii in the abstract
+    # this is the inverse of that.... For whatever reason, I get conversion with this version, but not when I try to just invert it
+    # also, Dodson seems to use a negative for his dT/dt (my 'coolingRate' equivalent), which changes the sign.
+    omega = A*D_0/a**2
+    Tc_fun = lambda Tc: ((R_CONST / Ea) * np.log(omega * (R_CONST * Tc ** 2) / (Ea * coolingRate))) ** -1
+    rootFun = lambda Tc: Tc - Tc_fun(Tc)
+
+    #Another strategy would be to take the function for cooling rate provided in Reiners and Brandon, 2006 (Eqn 7),
+    #and subtract the predicted cooling rate from the cooling rate. If the closure temperature is 'correct' this will
+    #be zero - so we can search for this 'root' with newtons method
+    # coolingRateFun = lambda Tc: (omega * R_CONST * Tc ** 2 / Ea) * np.exp(-Ea / (R_CONST * Tc))
+    # rootFun = lambda Tc: coolingRate - coolingRateFun(Tc)
+
+
+    Tc = optimize.newton(rootFun, closureTempGuess, maxiter=1000, tol=1e-6)
+
+    return Tc - 273.15
 
 
 # ==============================================================================
@@ -518,13 +660,19 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         ret[(self.radius - self.stoppingDistance) > self.rs] = 1.0
         return ret
 
-    def integrate43experiment(self,Temps,Durations,plotProfileEvolution = False):
+    def integrate43experiment(self,Temps = None,Durations = None,taos = None,plotProfileEvolution = False):
         '''
 
         :param Temps: The temperatures of each step
         :param Durations: The durations of each step
         :return: He_released, Rstep/Rbulk
         '''
+
+        nPtsForDegassing = 500.0 #In my experience the fourier part of this solution performs best with a certiain number of pts
+
+        if (Temps is None) or (Durations is None):
+            Temps = np.linspace(130.0, 650.0, 100) + 273.15
+            Durations = np.ones_like(Temps) * 0.1 / (24.0 * 365)
 
         if plotProfileEvolution:
             f,axs = plt.subplots(1,2)
@@ -535,15 +683,12 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         #To forward diffuse
 
         #If using ketcham solution for diffusion, we have an irregular grid - interpolate to a regular grid
-        rs = np.arange(self.dr/1e6,self.radius,self.dr/10.0) #Make the first point very small, but non-zero (to avoid divide by zero in CJ diffusion)
+        dr = self.radius/nPtsForDegassing
+        rs = np.arange(dr/1e2,self.radius,dr) #Make the first point very small, but non-zero (to avoid divide by zero in CJ diffusion)
         interp = interpolate.interp1d(np.hstack((-self.rs,self.rs,self.radius)),np.hstack((self._daughters,self._daughters,0)),kind = 'cubic')
         conc_4 = interp(rs)
 
-        # conc_4 = np.copy(self._daughters)
-        # rs = self.rs
-
         conc_3 = np.ones_like(conc_4)*np.mean(conc_4)
-        conc_3[-1] = 0
 
         if plotProfileEvolution:
             axs[0].plot(rs/self.radius,conc_3,'-k')
@@ -553,22 +698,21 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         total3_0 = sphericalVolumeIntegral(conc_3,rs)
         total4_0 = sphericalVolumeIntegral(conc_4,rs)
 
+        #If the diffusion parameters for each step where not specified, calculate them
+        if taos is None:
+            taos = self._diffusivityFunction(Temps) * Durations / self.radius ** 2
+
         #Preallocate some space for the results of step heating
-        f_4He = np.zeros(len(Temps)+1)
-        f_3He = np.zeros(len(Temps)+1)
+        f_4He = np.zeros(len(taos)+1)
+        f_3He = np.zeros(len(taos)+1)
 
         #f_0 = 0 (to start, all the gas is remaining) ... but Shuster seems to write in another way... that f_0 = 1? perhaps he means F_0 = 1?
         # f_4He[0] = 1.0
         # f_3He[0] = 1.0
 
-        taos = self._diffusivityFunction(Temps)*Durations/self.radius**2
-
         for i,tao in enumerate(taos):
             conc_3_i = CJDiffuse(conc_3,np.sum(taos[:i+1]),rs,self.radius)
             conc_4_i = CJDiffuse(conc_4,np.sum(taos[:i+1]),rs,self.radius)
-
-            conc_3_i[0] = 0
-            conc_4_i[0] = 0
 
             #For non-mirrored profile
             totalHe3_i = sphericalVolumeIntegral(conc_3_i,rs)
@@ -622,7 +766,7 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
     stoppingDistance = np.sum((np.array([19.68, 22.83, 22.46]) / 1e6) * _daughterProductionFactors) / np.sum(
         _daughterProductionFactors)
 
-    def __init__(self, radius, dr, parentConcs, daughterConcs, diffusivityParams='Cherniak'):
+    def __init__(self, radius, dr, parentConcs, daughterConcs, diffusivityParams='Farley'):
         '''
 
         :param radius:
@@ -684,21 +828,26 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
         :return:
         '''
 
-        if diffusivityParams is 'Cherniak':
+        R = 8.3144598  # J/K /mol Universal gas constant
+
+        if isinstance(diffusivityParams,dict):
+            Do = diffusivityParams['Do']
+            Ea = diffusivityParams['Ea']
+
+        elif diffusivityParams is 'Cherniak':
 
             ##thermal diffusivty - should probably build all this into a file and just read from that, easier to update, switch between values
-            # These values from Cherniak, Watson, and Thomas, 2000
+            # These values from Cherniak, Watson, and Thomas, 2009
             Do = 2.1E-6 * (60.0 * 60.0 * 24 * 365.0)  # m^2/s -> m^2 / yr
-            Ea = (-140.0) * 1000.0  # kJ/mol -> J/mol
-            R = 8.3144598  # J/K /mol Universal gas constant
+            Ea = (-117.0) * 1000.0  # kJ/mol -> J/mol
 
         elif diffusivityParams is 'Farley':
             # These values from Farley 2000
             Do = 157680.0  # m^2 / yr
             Ea = -137653.6  # J/mol
-            R = 8.3144598  # J/K /mol Universal gas constant
 
         self._diffusivityFunction = lambda T: thermDiffusivity(T, Do, Ea, R)
+
 
     def calcAge(self, applyFt=True):
         '''
@@ -753,13 +902,16 @@ class HeDegassingExperiment:
     This is a work in progress to experiment with inverting Apatite 4/3 data for thermal histories.
     '''
 
-    def __init__(self,filepath):
+    def __init__(self,filepath,fitRange = [0,1],name = 'No name'):
         '''
         NOTES:
         :param filepath:
+        :param fitIndices: Which range of sumFHe values might you want to fit? This is here in the even we want to ignore
+        strange steps with little gas at the end of runs
         '''
-
         self.filepath = filepath
+        self.fitRange = fitRange
+        self.name = name
 
         #The expected structure of the excel files (from Shuster) have two headers, get informatino from the top first
         df = pd.read_excel(filepath,nrows = 2)
@@ -784,6 +936,7 @@ class HeDegassingExperiment:
         self.dHeRatio = np.array(df['d4/3_ratio '])
 
         self._goodData = (self.He_3 > 0) & (self.dHe_3 > 0) & (self.HeRatio > 0) & (self.dHeRatio > 0)
+        self._goodIdcs = np.argwhere(self._goodData).flatten()
 
         #Hmmmm..... how to deal with bad experiments... tricky part about nan or zero is propogation of results
         self.HeRatio[~self._goodData] = 0
@@ -797,6 +950,8 @@ class HeDegassingExperiment:
 
         self.F_3He, self.dF_3He, self.sum_F_3He, self.dsum_F_3He = self._calcf_F(self.He_3,self.dHe_3)
 
+        self.fitIndices = (self.sum_F_3He >= fitRange[0]) & (self.sum_F_3He <=fitRange[1])
+
         self.RsRb = self.HeRatio/(np.sum(self.He_4)/np.sum(self.He_3))
         self.RsRb[~self._goodData] = 0
 
@@ -806,6 +961,9 @@ class HeDegassingExperiment:
         dRb = Rb*np.sqrt((dSum4He/np.sum(self.He_4))**2 + (dSum3He/np.sum(self.He_3))**2)
         self.dRsRb = self.RsRb*np.sqrt((self.dHeRatio/self.HeRatio)**2 + (dRb/Rb)**2)
         self.dRsRb[~self._goodData] = 0
+        
+        #Calculate the values of Tao estimated from this experiment - this is used for comparring this experiment to models
+        self._Taos = self.calcTaosFromGasRelease()
 
 
     def _calcf_F(self,N,dN):
@@ -835,13 +993,50 @@ class HeDegassingExperiment:
         :param kwargs: passed to pyplot.errorbar
         :return:
         '''
-        plt.errorbar(self.sum_F_3He, self.RsRb, yerr=self.dRsRb, xerr=self.dsum_F_3He, **kwargs)
+        plt.errorbar(self.sum_F_3He, self.RsRb, yerr=self.dRsRb, xerr=self.dsum_F_3He,label = self.name, **kwargs)
+
+    def calcArrhenius(self):
+        '''
+
+        :param kwargs:
+        :return:
+        '''
+        return calcD_forArrhenius(self.R,self.sum_F_3He[self._goodData],self.stepDurations[self._goodData]), 1.0/(273.15+self.stepTemps[self._goodData])
 
     def L2Norm_ratioEvolution(self,sumF3He_exp,RsRb):
         goodData = ~np.isnan(RsRb)  & self._goodData
         return np.sum((RsRb[goodData] - self.RsRb[goodData])**2)
 
-    def ln_likelihood(self,sumF3He_exp,RsRb):
-        goodData = ~np.isnan(RsRb) & self._goodData
+    def ln_likelihood_RsRb(self,RsRb):
+        goodData = ~np.isnan(RsRb) & self._goodData & self.fitIndices
         ps = (1.0/np.sqrt(2.0*np.pi*self.dRsRb**2))*np.exp(-(RsRb - self.dRsRb)**2/(2.0*self.dRsRb**2))
         return np.sum(np.log(ps[goodData]))
+
+    def calcTaosFromGasRelease(self):
+        '''
+        Calculate the integrated normalized diffusivity determined from the gas release fractions based on the equations
+        of  C&J. This will be used when comparing model to fit data, as it ensures that the x-axis are matched.
+        :return: tao - an array of D*dt/a^2 for each step in the experiment
+        '''
+        
+        D = self.calcArrhenius()[0]
+        tao = D*self.stepDurations/self.R**2
+        return tao
+
+    def ln_likelihood_Experiment(self,HeModel):
+        '''
+
+        :param HeModel:
+        :return:
+        '''
+        
+        #To ensure matching gas release to experiment - use the tao values determined for this experiment in simulating the degassing        
+        F3He, RsRb = HeModel.integrate43experiment(self.stepTemps + 273.15, self.stepDurations,taos= self._Taos,plotProfileEvolution=False)[2:]
+
+        sumF3He = np.cumsum(F3He)
+
+        #When fitting a more finely discretized step heating experiment
+        goodIdcs = np.argwhere(self._goodData)
+
+        return np.sum(stats.norm.logpdf(RsRb[self.fitIndices],self.RsRb[self.fitIndices],self.dRsRb[self.fitIndices]))
+
