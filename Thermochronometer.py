@@ -626,7 +626,8 @@ class sphericalThermochronometer(Thermochronometer):
         sum_RHS[0] = (2 - b) * diffusant[0] * self.rs[0] - diffusant[1] * self.rs[1] + diffusant[0] * self.rs[0] - A[0]
         self._M[0, 0] = (-b - 3.0)
 
-        return np.dot(sum_RHS, linalg.inv(self._M)) / self.rs
+        return linalg.solve(self._M,sum_RHS)/ self.rs
+
 
     def _volumeIntegral(self,quantity):
         '''
