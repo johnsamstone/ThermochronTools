@@ -1022,8 +1022,8 @@ class HeDegassingExperiment:
         :return: tao - an array of D*dt/a^2 for each step in the experiment
         '''
         
-        D = self.calcArrhenius()[0]
-        tao = D*self.stepDurations/self.R**2
+        D = self.calcArrhenius()[0] #Calc arrhenius masks out data that is not 'good', this needs to match
+        tao = D*self.stepDurations[self._goodData]/self.R**2
         return tao
 
     def ln_likelihood_Experiment(self,HeModel):
