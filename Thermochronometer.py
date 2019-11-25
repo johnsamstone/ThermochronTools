@@ -2,9 +2,9 @@
 '''
 Created on Thu Dec 15 15:59:53 2016
 
-@author: sjohnstone
+@author: sjohnstone, sjohnstone@usgs.gov
 
- This is a class that describes a thermochronometer
+ This is a class that describes a thermochronometer. It is currently only configured for spherical apatite He thermochronometers.
 
 '''
 
