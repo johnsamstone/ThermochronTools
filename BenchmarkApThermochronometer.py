@@ -240,13 +240,13 @@ axs[2].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)
 
 #Default params
 Radius = 65.0 / 1e6  # Crystal radius in m
-dx = 1.0 / 1e6  # spacing of nodes in m
+dx = 2.0 / 1e6  # spacing of nodes in m
 L =  np.arange(dx / 2.0, Radius, dx)
 
 # Concentrations
-Conc238 = 1.0#8.0
+Conc238 = 40.0
 Conc235 = (Conc238 / 137.0)
-Conc232 = 1.0#147.0
+Conc232 = 47.0
 
 parentConcs = np.array([Conc238 * np.ones_like(L), Conc235 * np.ones_like(L), Conc232 * np.ones_like(L)])
 daughterConcs = np.zeros_like(L)
@@ -288,6 +288,7 @@ stepHeatDurations = np.array([1.0,0.5,0.38,0.51,0.66,0.66,0.46,0.45,0.48,0.66,0.
 stepHeatTemps = np.linspace(150.0,900.0,30)+273.15
 stepHeatDurations = np.ones_like(stepHeatTemps)*0.3 / (24.0*365)
 
+dt = 1e5
 f,axs = plt.subplots(3,1)
 for i,thermalHistory in enumerate(thermalHistories):
 
@@ -295,7 +296,7 @@ for i,thermalHistory in enumerate(thermalHistories):
     HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,np.copy(parentConcs),np.copy(daughterConcs),diffusivityParams=diffusivity)
 
     #Integrate this thermal history with a fixed timestemp
-    HeModel.integrateThermalHistory(thermalHistory.t[0], thermalHistory.t[-1],1e5, thermalHistory.getTemp)
+    HeModel.integrateThermalHistory(thermalHistory.t[0], thermalHistory.t[-1],dt, thermalHistory.getTemp)
 
     axs[0].plot(-thermalHistory.t/1e6,thermalHistory.T - 273.15,'-',color = colors[i])
     axs[0].set_ylim(100.0,0)
@@ -319,6 +320,7 @@ for i,thermalHistory in enumerate(thermalHistories):
     axs[2].set_xlabel(r'$\sum F ^3He$',fontsize = 14)
     axs[2].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)
     axs[2].set_ylim(0,1.6)
+    axs[2].grid()
 
 #########################################################################################################
 #### Sixth test,Shuster and Farley ratio evolution diagram- for an arbitrary history (using this to compare with Hefty)
@@ -326,13 +328,14 @@ for i,thermalHistory in enumerate(thermalHistories):
 
 #Default params
 Radius = 65.0 / 1e6  # Crystal radius in m
-dx = .10 / 1e6  # spacing of nodes in m
+dx = 1.0 / 1e6  # spacing of nodes in m
 L =  np.arange(dx / 2.0, Radius, dx)
+dt = 1e5
 
 # Concentrations
-Conc238 = 1.0#8.0
+Conc238 = 50.0#8.0
 Conc235 = (Conc238 / 137.0)
-Conc232 = 1.0#147.0
+Conc232 = 65.0#147.0
 
 parentConcs = np.array([Conc238 * np.ones_like(L), Conc235 * np.ones_like(L), Conc232 * np.ones_like(L)])
 daughterConcs = np.zeros_like(L)
@@ -344,8 +347,10 @@ thermalHistories = []
 colors = []
 
 #Some cooling history
-timePoints = np.array([30.0,20.0, 0.0])*1e6
-thermalPoints = np.array([200.0,0.0, 0.0])+273.15
+
+#Holding, then quenching
+timePoints = np.array([24.0, 10.0,2.0,0.0])*1e6
+thermalPoints = np.array([5.0, 5.0, 5.0, 5.0])+273.15
 thermalHistory = tHist.thermalHistory(-timePoints,thermalPoints)
 color = 'r'
 
@@ -356,18 +361,18 @@ color = 'r'
 stepHeatTemps = np.linspace(150.0,900.0,30)+273.15
 stepHeatDurations = np.ones_like(stepHeatTemps)*0.3 / (24.0*365)
 
-f,axs = plt.subplots(3,1)
+f,axs = plt.subplots(2,1)
 
 HeModel = tchron.SphericalApatiteHeThermochronometer(Radius,dx,np.copy(parentConcs),np.copy(daughterConcs),diffusivityParams=diffusivity)
 
 #Integrate this thermal history with a fixed timestemp
-HeModel.integrateThermalHistory(thermalHistory.t[0], thermalHistory.t[-1],1e5, thermalHistory.getTemp)
+HeModel.integrateThermalHistory(thermalHistory.t[0], thermalHistory.t[-1],dt, thermalHistory.getTemp)
 
-axs[0].plot(-thermalHistory.t/1e6,thermalHistory.T - 273.15,'-',color = color)
-axs[0].set_ylim(100.0,0)
-axs[0].set_xlim(15.0,0)
-axs[0].set_ylabel('Temperature C')
-axs[0].set_xlabel('Time (Ma)')
+# axs[2].plot(-thermalHistory.t/1e6,thermalHistory.T - 273.15,'-',color = color)
+# axs[2].set_ylim(100.0,0)
+# axs[2].set_xlim(15.0,0)
+# axs[2].set_ylabel('Temperature C')
+# axs[2].set_xlabel('Time (Ma)')
 
 plt.sca(axs[1])
 thisAge = HeModel.calcAge(applyFt=True)
@@ -379,13 +384,16 @@ axs[1].set_ylabel(r'$[^4He]$',fontsize = 13)
 axs[1].set_xlabel('Normalized Radius')
 axs[1].legend(loc = 'best')
 
-f_3He,f_4He,F3He,RsRb = HeModel.integrate43experiment(stepHeatTemps,stepHeatDurations,plotProfileEvolution=False)
+f_3He,f_4He,F3He,RsRb = HeModel.integrate43experiment()#stepHeatTemps,stepHeatDurations,plotProfileEvolution=False)
 
-axs[2].plot(np.cumsum(F3He),RsRb,'-',color = color)
-axs[2].set_xlabel(r'$\sum F ^3He$',fontsize = 14)
-axs[2].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)
-axs[2].set_ylim(0,1.6)
-axs[2].grid()
+plt.sca(axs[0])
+plt.xticks(np.arange(0,1,0.1))
+plt.yticks(np.arange(0,1.75,0.1))
+axs[0].plot(np.cumsum(F3He),RsRb,'-',color = color)
+axs[0].set_xlabel(r'$\sum F ^3He$',fontsize = 14)
+axs[0].set_ylabel(r'$R_{step}/R_{bulk}$',fontsize = 14)
+axs[0].set_ylim(0,1.6)
+axs[0].grid()
 
 
 #########################################################################################################

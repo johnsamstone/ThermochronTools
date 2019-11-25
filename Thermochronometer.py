@@ -626,7 +626,10 @@ class sphericalThermochronometer(Thermochronometer):
         sum_RHS[0] = (2 - b) * diffusant[0] * self.rs[0] - diffusant[1] * self.rs[1] + diffusant[0] * self.rs[0] - A[0]
         self._M[0, 0] = (-b - 3.0)
 
-        return np.dot(sum_RHS, linalg.inv(self._M)) / self.rs
+        # return np.dot(sum_RHS, linalg.inv(self._M)) / self.rs #Was using this
+
+        return linalg.solve(self._M,sum_RHS)/ self.rs #But this seems more elegant, potentially more stable if the matrix is weird?
+
 
     def _volumeIntegral(self,quantity):
         '''
@@ -858,7 +861,7 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
         # Volumes = (4.0 / 3.0) * np.pi * ((self.rs + self.dr / 2.0) ** 3 - (self.rs - (self.dr / 2.0)) ** 3)
         # Volumes[0] = (4.0 / 3.0) * np.pi * (self.rs[0] + (self.dr / 2.0)) ** 3
         # Volumes[-1] = (4.0 / 3.0) * np.pi * (self.radius ** 3 - (self.rs[-1] - (self.dr / 2.0)) ** 3)
-
+        #
         # parents = [np.sum(parent * Volumes) for parent in self._parents]
         # daughters = np.sum(self._daughters * Volumes)
 
@@ -1019,8 +1022,8 @@ class HeDegassingExperiment:
         :return: tao - an array of D*dt/a^2 for each step in the experiment
         '''
         
-        D = self.calcArrhenius()[0]
-        tao = D*self.stepDurations/self.R**2
+        D = self.calcArrhenius()[0] #Calc arrhenius masks out data that is not 'good', this needs to match
+        tao = D*self.stepDurations[self._goodData]/self.R**2
         return tao
 
     def ln_likelihood_Experiment(self,HeModel):
