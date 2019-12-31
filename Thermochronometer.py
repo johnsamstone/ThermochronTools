@@ -194,7 +194,7 @@ def calcD_forArrhenius(a,sumF,dt):
         D_0 = sumF[0]**2*np.pi*a**2/(36.0*dt[0])
     elif (sumF[0] > 0.1) & (sumF[0] < 0.1):
         # Equation 4b
-        D_0 = (R**2/np.pi**2*dt[0])*(2.0*np.pi - np.pi**2*sumF[0]/3.0 - 2.0*np.pi*np.sqrt(1.0 - np.pi*sumF[0]/3.0))
+        D_0 = (a**2/np.pi**2*dt[0])*(2.0*np.pi - np.pi**2*sumF[0]/3.0 - 2.0*np.pi*np.sqrt(1.0 - np.pi*sumF[0]/3.0))
     elif sumF[0] > 0.9:
         # Equation 4c
         D_0 = -(a**2/np.pi**2*dt[0])*np.log(np.pi**2*(1.0 - sumF[0])/6.0)
