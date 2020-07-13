@@ -849,6 +849,11 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
             Do = 157680.0  # m^2 / yr
             Ea = -137653.6  # J/mol
 
+        elif diffusivityParams is 'Reiners_zircon':
+            # best fitting diffusivities from Reiners et al., 2004
+            Ea =  -169000.0
+            Do = 1451.61859
+
         self._diffusivityFunction = lambda T: thermDiffusivity(T, Do, Ea, R)
 
 
