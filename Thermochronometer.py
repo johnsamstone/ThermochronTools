@@ -651,6 +651,61 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
     '''
     stoppingDistance = None
 
+    def __init__(self, radius, dr, parentConcs, daughterConcs, diffusivityParams=None):
+        '''
+
+        :param radius:
+        :param dr:
+        :param diffusivityFunction:
+        :param parentConcs:
+        :param daughterConcs:
+        :param decayConstants:
+        :param daughterProductionFactors:
+        '''
+
+        self.radius = radius
+        self.dr = dr
+        self.rs = np.arange(dr / 2.0, radius, dr) #Hmmm.... in some cases this can generate a radial coordinate AT the edge - which shouldn't exist given Ketcham's model setup...
+        if self.rs[-1] == radius:
+            print('Error: crystal grid coordinates do not abide by requirements of numerical model')
+
+        self._n = len(self.rs)
+        self._assignDiffusivityFunction(diffusivityParams)
+
+        self._daughters = daughterConcs
+        self._parents = parentConcs
+
+        # Set up matrices for solution
+        a = np.array([np.ones(self._n - 1), np.ones(self._n), np.ones(self._n - 1)])
+
+        # Initialize the matrices usef for the integration
+        self._M = np.diag(np.ones(self._n), k=0)
+        self._N = np.diag(np.ones(self._n), k=0)
+
+        # Store the relative indices of the diagonals
+        self._km1Diag = kth_diag_indices(self._M, -1)
+        self._kDiag = np.diag_indices(self._n)
+        self._kp1Diag = kth_diag_indices(self._M, 1)
+
+        # fill in the otherimportant diagonals
+        self._M[self._km1Diag] = 1.0
+        self._M[self._kp1Diag] = 1.0
+
+        self._N[self._km1Diag] = -1.0
+        self._N[self._kp1Diag] = -1.0
+
+        # Calculate the depletion fraction as a function of radius
+        self._ejectionFraction = self._calcEjectionFraction()
+
+        self._multipleParents = parentConcs.ndim > 1
+
+        #What are the discrete volumes of each node spherical shell
+        Volumes = (4.0 / 3.0) * np.pi * ((self.rs + self.dr / 2.0) ** 3 - (self.rs - (self.dr / 2.0)) ** 3)
+        Volumes[0] = (4.0 / 3.0) * np.pi * (self.rs[0] + (self.dr / 2.0)) ** 3
+        Volumes[-1] = (4.0 / 3.0) * np.pi * (self.radius ** 3 - (self.rs[-1] - (self.dr / 2.0)) ** 3)
+
+        self._ShellVolumes = Volumes
+
     def _calcEjectionFraction(self):
         '''
         Eject He based on the stopping distance and grain size, utilizes the formulation of Farley for a spherical grain
@@ -742,7 +797,7 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         F4He = f_4He[1:] - f_4He[:-1]
 
         # This is written as Rstep in Shuster & Farley 2004, but is already normalized by the bulk ratio through f.
-        #Where we to divide through be the bulk concentration ratio we would re-introduce dependence on concentration
+        #Were we to divide through be the bulk concentration ratio we would re-introduce dependence on concentration
         RstepRbulk = F4He/F3He
         return f_3He,f_4He,F3He,RstepRbulk
 
@@ -766,63 +821,11 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
     _decayConsts = np.array([_lam_238U, _lam_235U, _lam_232Th])
     _daughterProductionFactors = np.array([_p_238U, _p_235U, _p_232Th])
 
+    #From Farley et al., 1996
     stoppingDistance = np.sum((np.array([19.68, 22.83, 22.46]) / 1e6) * _daughterProductionFactors) / np.sum(
         _daughterProductionFactors)
 
-    def __init__(self, radius, dr, parentConcs, daughterConcs, diffusivityParams='Farley'):
-        '''
-
-        :param radius:
-        :param dr:
-        :param diffusivityFunction:
-        :param parentConcs:
-        :param daughterConcs:
-        :param decayConstants:
-        :param daughterProductionFactors:
-        '''
-
-        self.radius = radius
-        self.dr = dr
-        self.rs = np.arange(dr / 2.0, radius, dr) #Hmmm.... in some cases this can generate a radial coordinate AT the edge - which shouldn't exist given Ketcham's model setup...
-        if self.rs[-1] == radius:
-            print('Error: crystal grid coordinates do not abide by requirements of numerical model')
-
-        self._n = len(self.rs)
-        self._assignDiffusivityFunction(diffusivityParams)
-
-        self._daughters = daughterConcs
-        self._parents = parentConcs
-
-        # Set up matrices for solution
-        a = np.array([np.ones(self._n - 1), np.ones(self._n), np.ones(self._n - 1)])
-
-        # Initialize the matrices usef for the integration
-        self._M = np.diag(np.ones(self._n), k=0)
-        self._N = np.diag(np.ones(self._n), k=0)
-
-        # Store the relative indices of the diagonals
-        self._km1Diag = kth_diag_indices(self._M, -1)
-        self._kDiag = np.diag_indices(self._n)
-        self._kp1Diag = kth_diag_indices(self._M, 1)
-
-        # fill in the otherimportant diagonals
-        self._M[self._km1Diag] = 1.0
-        self._M[self._kp1Diag] = 1.0
-
-        self._N[self._km1Diag] = -1.0
-        self._N[self._kp1Diag] = -1.0
-
-        # Calculate the depletion fraction as a function of radius
-        self._ejectionFraction = self._calcEjectionFraction()
-
-        self._multipleParents = parentConcs.ndim > 1
-
-        #What are the discrete volumes of each node spherical shell
-        Volumes = (4.0 / 3.0) * np.pi * ((self.rs + self.dr / 2.0) ** 3 - (self.rs - (self.dr / 2.0)) ** 3)
-        Volumes[0] = (4.0 / 3.0) * np.pi * (self.rs[0] + (self.dr / 2.0)) ** 3
-        Volumes[-1] = (4.0 / 3.0) * np.pi * (self.radius ** 3 - (self.rs[-1] - (self.dr / 2.0)) ** 3)
-
-        self._ShellVolumes = Volumes
+    _defaultDiffusivty = 'Farley'
 
     def _assignDiffusivityFunction(self, diffusivityParams):
         '''
@@ -832,6 +835,9 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
         '''
 
         R = 8.3144598  # J/K /mol Universal gas constant
+
+        if diffusivityParams is None:
+            diffusivityParams = self._defaultDiffusivty
 
         if isinstance(diffusivityParams,dict):
             Do = diffusivityParams['Do']
@@ -849,10 +855,6 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
             Do = 157680.0  # m^2 / yr
             Ea = -137653.6  # J/mol
 
-        elif diffusivityParams is 'Reiners_zircon':
-            # best fitting diffusivities from Reiners et al., 2004
-            Ea =  -169000.0
-            Do = 1451.61859
 
         self._diffusivityFunction = lambda T: thermDiffusivity(T, Do, Ea, R)
 
@@ -900,6 +902,69 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
 
         return 1 - (3.0 * self.stoppingDistance) / (4.0 * self.radius) + self.stoppingDistance ** 3 / (
         16.0 * self.radius ** 3)
+
+
+class SphericalZirconHeThermochronometer(SphericalHeThermochronometer):
+    '''
+    A spherical he thermochronometer with the properties of apatite
+    '''
+    # Parameters related to decay
+    _lam_238U = 1.55125E-10
+    _lam_235U = 9.8485E-10
+    _lam_232Th = 4.9475E-11
+    _lam_147Sm = 6.539E-12
+
+    # Production factors
+    _p_238U = 8.0
+    _p_235U = 7.0
+    _p_232Th = 6.0
+    _p_147Sm = 1.0
+
+    _decayConsts = np.array([_lam_238U, _lam_235U, _lam_232Th])
+    _daughterProductionFactors = np.array([_p_238U, _p_235U, _p_232Th])
+
+    #From Farley et al., 1996
+    #TODO: Need to introduce better stopping distance calculations based on actual parent material present
+    stoppingDistance = np.sum((np.array([16.65, 19.64, 19.32]) / 1e6) * _daughterProductionFactors) / np.sum(
+        _daughterProductionFactors)
+
+    _defaultDiffusivty = 'Reiners'
+
+    def _assignDiffusivityFunction(self, diffusivityParams):
+        '''
+
+        :param diffusivityParams:
+        :return:
+        '''
+
+        R = 8.3144598  # J/K /mol Universal gas constant
+
+        if diffusivityParams is None:
+            diffusivityParams = self._defaultDiffusivty
+
+        if isinstance(diffusivityParams,dict):
+            Do = diffusivityParams['Do']
+            Ea = diffusivityParams['Ea']
+
+        elif diffusivityParams is 'Cherniak':
+
+            ##thermal diffusivty - should probably build all this into a file and just read from that, easier to update, switch between values
+            # These values from Cherniak, Watson, and Thomas, 2009
+            Do = 2.1E-6 * (60.0 * 60.0 * 24 * 365.0)  # m^2/s -> m^2 / yr
+            Ea = (-117.0) * 1000.0  # kJ/mol -> J/mol
+
+        elif diffusivityParams is 'Farley':
+            # These values from Farley 2000
+            Do = 157680.0  # m^2 / yr
+            Ea = -137653.6  # J/mol
+
+        elif diffusivityParams is 'Reiners':
+            # best fitting diffusivities from Reiners et al., 2004
+            Ea =  -169000.0
+            Do = 1451.61859
+
+        self._diffusivityFunction = lambda T: thermDiffusivity(T, Do, Ea, R)
+
 
 # ==============================================================================
 #  Classes for different thermochronology experiments
