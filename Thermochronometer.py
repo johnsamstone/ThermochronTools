@@ -802,63 +802,6 @@ class SphericalHeThermochronometer(sphericalThermochronometer):
         return f_3He,f_4He,F3He,RstepRbulk
 
 
-class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
-    '''
-    A spherical he thermochronometer with the properties of apatite
-    '''
-    # Parameters related to decay
-    _lam_238U = 1.55125E-10
-    _lam_235U = 9.8485E-10
-    _lam_232Th = 4.9475E-11
-    _lam_147Sm = 6.539E-12
-
-    # Production factors
-    _p_238U = 8.0
-    _p_235U = 7.0
-    _p_232Th = 6.0
-    _p_147Sm = 1.0
-
-    _decayConsts = np.array([_lam_238U, _lam_235U, _lam_232Th])
-    _daughterProductionFactors = np.array([_p_238U, _p_235U, _p_232Th])
-
-    #From Farley et al., 1996
-    stoppingDistance = np.sum((np.array([19.68, 22.83, 22.46]) / 1e6) * _daughterProductionFactors) / np.sum(
-        _daughterProductionFactors)
-
-    _defaultDiffusivty = 'Farley'
-
-    def _assignDiffusivityFunction(self, diffusivityParams):
-        '''
-
-        :param diffusivityParams:
-        :return:
-        '''
-
-        R = 8.3144598  # J/K /mol Universal gas constant
-
-        if diffusivityParams is None:
-            diffusivityParams = self._defaultDiffusivty
-
-        if isinstance(diffusivityParams,dict):
-            Do = diffusivityParams['Do']
-            Ea = diffusivityParams['Ea']
-
-        elif diffusivityParams is 'Cherniak':
-
-            ##thermal diffusivty - should probably build all this into a file and just read from that, easier to update, switch between values
-            # These values from Cherniak, Watson, and Thomas, 2009
-            Do = 2.1E-6 * (60.0 * 60.0 * 24 * 365.0)  # m^2/s -> m^2 / yr
-            Ea = (-117.0) * 1000.0  # kJ/mol -> J/mol
-
-        elif diffusivityParams is 'Farley':
-            # These values from Farley 2000
-            Do = 157680.0  # m^2 / yr
-            Ea = -137653.6  # J/mol
-
-
-        self._diffusivityFunction = lambda T: thermDiffusivity(T, Do, Ea, R)
-
-
     def calcAge(self, applyFt=True):
         '''
         :param applyFt: boolean, should the alpha ejection correction be applied
@@ -904,6 +847,64 @@ class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
         16.0 * self.radius ** 3)
 
 
+class SphericalApatiteHeThermochronometer(SphericalHeThermochronometer):
+    '''
+    A spherical he thermochronometer with the properties of apatite
+    '''
+    # Parameters related to decay
+    _lam_238U = 1.55125E-10
+    _lam_235U = 9.8485E-10
+    _lam_232Th = 4.9475E-11
+    _lam_147Sm = 6.539E-12
+
+    # Production factors
+    _p_238U = 8.0
+    _p_235U = 7.0
+    _p_232Th = 6.0
+    _p_147Sm = 1.0
+
+    _decayConsts = np.array([_lam_238U, _lam_235U, _lam_232Th])
+    _daughterProductionFactors = np.array([_p_238U, _p_235U, _p_232Th])
+
+    #From Farley et al., 1996
+    stoppingDistance = np.sum((np.array([19.68, 22.83, 22.46]) / 1e6) * _daughterProductionFactors) / np.sum(
+        _daughterProductionFactors)
+
+    _defaultDiffusivty = 'Farley'
+
+    def _assignDiffusivityFunction(self, diffusivityParams):
+        '''
+
+        :param diffusivityParams:
+        :return:
+        '''
+
+        R = 8.3144598  # J/K /mol Universal gas constant
+
+        if diffusivityParams is None:
+            diffusivityParams = self._defaultDiffusivty
+
+        if isinstance(diffusivityParams,dict):
+            Do = diffusivityParams['Do']
+            Ea = diffusivityParams['Ea']
+
+        elif diffusivityParams.lower() == 'cherniak':
+
+            ##thermal diffusivty - should probably build all this into a file and just read from that, easier to update, switch between values
+            # These values from Cherniak, Watson, and Thomas, 2009
+            Do = 2.1E-6 * (60.0 * 60.0 * 24 * 365.0)  # m^2/s -> m^2 / yr
+            Ea = (-117.0) * 1000.0  # kJ/mol -> J/mol
+
+        elif diffusivityParams.lower() == 'farley':
+            # These values from Farley 2000
+            Do = 157680.0  # m^2 / yr
+            Ea = -137653.6  # J/mol
+
+
+        self._diffusivityFunction = lambda T: thermDiffusivity(T, Do, Ea, R)
+
+
+
 class SphericalZirconHeThermochronometer(SphericalHeThermochronometer):
     '''
     A spherical he thermochronometer with the properties of apatite
@@ -946,19 +947,7 @@ class SphericalZirconHeThermochronometer(SphericalHeThermochronometer):
             Do = diffusivityParams['Do']
             Ea = diffusivityParams['Ea']
 
-        elif diffusivityParams is 'Cherniak':
-
-            ##thermal diffusivty - should probably build all this into a file and just read from that, easier to update, switch between values
-            # These values from Cherniak, Watson, and Thomas, 2009
-            Do = 2.1E-6 * (60.0 * 60.0 * 24 * 365.0)  # m^2/s -> m^2 / yr
-            Ea = (-117.0) * 1000.0  # kJ/mol -> J/mol
-
-        elif diffusivityParams is 'Farley':
-            # These values from Farley 2000
-            Do = 157680.0  # m^2 / yr
-            Ea = -137653.6  # J/mol
-
-        elif diffusivityParams is 'Reiners':
+        elif diffusivityParams.lower() == 'reiners':
             # best fitting diffusivities from Reiners et al., 2004
             Ea =  -169000.0
             Do = 1451.61859
